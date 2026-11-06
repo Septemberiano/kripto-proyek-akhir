@@ -2,6 +2,8 @@ import cors from 'cors';
 import express from 'express';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +76,19 @@ if (userRow.count === 0) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  // SHA256 of superadmin123: e34f92a20532a873cb3184398070b4b82a8fa29cf48572c203dc5f0fa6158231
+  insertUser.run(
+    'usr-superadmin-1',
+    'superadmin',
+    'e34f92a20532a873cb3184398070b4b82a8fa29cf48572c203dc5f0fa6158231',
+    'superadmin',
+    'Ahmad Fauzi (Sysadmin)',
+    '3171000000000001',
+    'superadmin@arsipnusa.id',
+    '+62 811-0000-999',
+    new Date().toISOString()
+  );
+
   // SHA256 of admin123: 240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
   insertUser.run(
     'usr-admin-1',
@@ -111,6 +126,26 @@ if (userRow.count === 0) {
     '+62 811-9283-102',
     new Date().toISOString()
   );
+} else {
+  // Ensure superadmin exists even if database already has users
+  const checkSuper = db.prepare('SELECT id FROM users WHERE username = ?');
+  if (!checkSuper.get('superadmin')) {
+    const insertSuper = db.prepare(`
+      INSERT INTO users (id, username, password_hash, role, name, nik, email, phone, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertSuper.run(
+      'usr-superadmin-1',
+      'superadmin',
+      'e34f92a20532a873cb3184398070b4b82a8fa29cf48572c203dc5f0fa6158231',
+      'superadmin',
+      'Ahmad Fauzi (Sysadmin)',
+      '3171000000000001',
+      'superadmin@arsipnusa.id',
+      '+62 811-0000-999',
+      new Date().toISOString()
+    );
+  }
 }
 
 // Seed default documents if empty
@@ -231,9 +266,149 @@ app.get('/api/health', (req, res) => {
 // GET /api/users
 app.get('/api/users', (req, res) => {
   try {
-    const stmt = db.prepare('SELECT id, username, role, name, nik, email, phone, created_at FROM users');
+    const stmt = db.prepare('SELECT id, username, role, name, nik, email, phone, created_at FROM users ORDER BY created_at DESC');
     const users = stmt.all();
     res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/users (Super Admin create user)
+app.post('/api/users', (req, res) => {
+  try {
+    const { username, password, password_hash, role = 'client', name, nik = '', email = '', phone = '' } = req.body;
+
+    if (!username || (!password && !password_hash) || !name) {
+      return res.status(400).json({ error: 'Username, kata sandi, dan nama lengkap wajib diisi.' });
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(cleanUsername);
+    if (existing) {
+      return res.status(409).json({ error: `Username "${cleanUsername}" sudah terdaftar.` });
+    }
+
+    const finalHash = password_hash || crypto.createHash('sha256').update(password).digest('hex');
+    const id = `usr-${role}-${Date.now()}`;
+    const now = new Date().toISOString();
+
+    const insertStmt = db.prepare(`
+      INSERT INTO users (id, username, password_hash, role, name, nik, email, phone, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    insertStmt.run(id, cleanUsername, finalHash, role, name.trim(), nik.trim(), email.trim(), phone.trim(), now);
+
+    res.status(201).json({
+      id,
+      username: cleanUsername,
+      role,
+      name: name.trim(),
+      nik: nik.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      created_at: now
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id (Super Admin update user)
+app.put('/api/users/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, role, nik = '', email = '', phone = '', password } = req.body;
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    if (!user) {
+      return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
+    }
+
+    if (password && password.trim()) {
+      const newHash = crypto.createHash('sha256').update(password.trim()).digest('hex');
+      db.prepare(`
+        UPDATE users
+        SET name = ?, role = ?, nik = ?, email = ?, phone = ?, password_hash = ?
+        WHERE id = ?
+      `).run(name || user.name, role || user.role, nik, email, phone, newHash, id);
+    } else {
+      db.prepare(`
+        UPDATE users
+        SET name = ?, role = ?, nik = ?, email = ?, phone = ?
+        WHERE id = ?
+      `).run(name || user.name, role || user.role, nik, email, phone, id);
+    }
+
+    const updated = db.prepare('SELECT id, username, role, name, nik, email, phone, created_at FROM users WHERE id = ?').get(id);
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/users/:id (Super Admin delete user)
+app.delete('/api/users/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    if (!user) {
+      return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
+    }
+    if (user.username === 'superadmin') {
+      return res.status(403).json({ error: 'Akun Super Administrator utama tidak boleh dihapus.' });
+    }
+
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    res.json({ success: true, message: `Pengguna ${user.name} (${user.username}) berhasil dihapus.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/system/stats (Super Admin System & Database Stats)
+app.get('/api/system/stats', (req, res) => {
+  try {
+    const usersAll = db.prepare('SELECT role, COUNT(*) as count FROM users GROUP BY role').all();
+    const userStats = { total: 0, superadmin: 0, admin: 0, client: 0 };
+    for (const r of usersAll) {
+      if (r.role in userStats) {
+        userStats[r.role] = r.count;
+      }
+      userStats.total += r.count;
+    }
+
+    const docCount = db.prepare('SELECT COUNT(*) as count FROM documents').get();
+    const verifiedDocs = db.prepare("SELECT COUNT(*) as count FROM documents WHERE status = 'Terverifikasi'").get();
+    const pendingDocs = db.prepare("SELECT COUNT(*) as count FROM documents WHERE status = 'Menunggu tanda tangan'").get();
+    const reviewDocs = db.prepare("SELECT COUNT(*) as count FROM documents WHERE status = 'Dalam peninjauan'").get();
+
+    const auditCount = db.prepare('SELECT COUNT(*) as count FROM audit_logs').get();
+    const reqCount = db.prepare('SELECT COUNT(*) as count FROM client_requests').get();
+
+    let dbSize = 40;
+    try {
+      const stats = fs.statSync(dbPath);
+      dbSize = Math.round(stats.size / 1024);
+    } catch {
+      dbSize = 40;
+    }
+
+    res.json({
+      users: userStats,
+      documents: {
+        total: docCount.count,
+        verified: verifiedDocs.count,
+        pending: pendingDocs.count,
+        review: reviewDocs.count
+      },
+      auditLogsCount: auditCount.count,
+      clientRequestsCount: reqCount.count,
+      databaseSizeKb: dbSize,
+      databaseStatus: 'Online (SQLite Sync Mode)',
+      timestamp: new Date().toISOString()
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

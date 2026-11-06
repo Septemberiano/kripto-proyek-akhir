@@ -16,10 +16,17 @@ import {
   FileCheck,
   Clock,
   CheckCircle2,
+  Server,
+  Activity,
 } from 'lucide-react';
 import type { UserSession } from '../types';
 
 export type NavTab =
+  // Super Admin tabs
+  | 'Manajemen Pengguna'
+  | 'Status Sistem & Database'
+  | 'Audit Log Global'
+  // Notaris (Admin) tabs
   | 'Ikhtisar'
   | 'Aset & Sertifikat'
   | 'Wasiat & Akta'
@@ -46,7 +53,7 @@ interface SidebarProps {
   isBackendOnline: boolean;
   documentsCount: number;
   requestsCount?: number;
-  onSwitchRolePreview?: (role: 'admin' | 'client') => void;
+  usersCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -59,11 +66,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isBackendOnline,
   documentsCount,
   requestsCount = 2,
-  onSwitchRolePreview,
+  usersCount = 5,
 }) => {
+  const isSuperAdmin = session.role === 'superadmin';
   const isAdmin = session.role === 'admin';
 
-  // Admin Navigation Items
+  // Super Admin Navigation Items
+  const superAdminNavItems: { label: NavTab; icon: React.ReactNode; badge?: string | number }[] = [
+    { label: 'Manajemen Pengguna', icon: <Users className="w-4 h-4" />, badge: usersCount },
+    { label: 'Status Sistem & Database', icon: <Server className="w-4 h-4" />, badge: 'LIVE' },
+    { label: 'Audit Log Global', icon: <FileText className="w-4 h-4" /> },
+  ];
+
+  // Admin (Notaris) Navigation Items
   const adminNavItems: { label: NavTab; icon: React.ReactNode; badge?: string | number }[] = [
     { label: 'Ikhtisar', icon: <LayoutDashboard className="w-4 h-4" /> },
     { label: 'Aset & Sertifikat', icon: <Building2 className="w-4 h-4" /> },
@@ -85,7 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { label: 'Cek Keaslian Berkas', icon: <Image className="w-4 h-4" /> },
   ];
 
-  const navItems = isAdmin ? adminNavItems : clientNavItems;
+  const navItems = isSuperAdmin ? superAdminNavItems : isAdmin ? adminNavItems : clientNavItems;
 
   const initials = session.displayName
     .split(' ')
@@ -108,7 +123,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`fixed inset-y-0 left-0 z-30 w-64 border-r text-[#e7ece9] flex flex-col p-4 transition-all duration-300 md:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         } ${
-          isAdmin
+          isSuperAdmin
+            ? 'bg-[#0b1322] border-[#1d2b45]'
+            : isAdmin
             ? 'bg-[#142825] border-[#29403c]'
             : 'bg-[#263640] border-[#3a4c56]'
         }`}
@@ -116,13 +133,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Brand header */}
         <div
           className={`flex items-center justify-between pb-4 border-b ${
-            isAdmin ? 'border-[#233a35]' : 'border-[#334651]'
+            isSuperAdmin
+              ? 'border-[#1a2942]'
+              : isAdmin
+              ? 'border-[#233a35]'
+              : 'border-[#334651]'
           }`}
         >
           <div className="flex items-center gap-3">
             <div
               className={`w-10 h-10 grid place-items-center border rotate-45 shadow-[inset_0_0_0_2px] ${
-                isAdmin
+                isSuperAdmin
+                  ? 'bg-[#312e81] border-[#6366f1] shadow-[#0b1322]'
+                  : isAdmin
                   ? 'bg-[#772e3a] border-[#a57b6d] shadow-[#142825]'
                   : 'bg-[#526d78] border-[#93a6ad] shadow-[#263640]'
               }`}
@@ -134,7 +157,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 ArsipNusa
               </strong>
               <span className="text-[10px] tracking-widest text-[#9caaa6] uppercase">
-                {isAdmin ? 'Notarial Vault' : 'Client Trust Portal'}
+                {isSuperAdmin
+                  ? 'Control Center'
+                  : isAdmin
+                  ? 'Notarial Vault'
+                  : 'Client Trust Portal'}
               </span>
             </div>
           </div>
@@ -147,40 +174,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Role Switcher preview (only available if admin wants to preview client) */}
-        {onSwitchRolePreview && (
-          <div
-            className={`grid grid-cols-2 gap-1 my-3 p-1 rounded-lg border text-xs font-semibold ${
-              isAdmin
-                ? 'bg-[#10231f] border-[#304743]'
-                : 'bg-[#202e36] border-[#42535c]'
-            }`}
-          >
-            <button
-              onClick={() => onSwitchRolePreview('admin')}
-              className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                isAdmin ? 'bg-[#29433e] text-white shadow-xs' : 'text-[#7f918c] hover:text-white'
-              }`}
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Admin</span>
-            </button>
-            <button
-              onClick={() => onSwitchRolePreview('client')}
-              className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                !isAdmin ? 'bg-[#405966] text-white shadow-xs' : 'text-[#7f918c] hover:text-white'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Klien</span>
-            </button>
-          </div>
-        )}
-
-        {/* Workspace label */}
-        <div className="pt-2 pb-2 px-2 text-[10px] font-bold tracking-widest text-[#8c9e99] uppercase flex items-center justify-between">
-          <span>{isAdmin ? 'RUANG KERJA NOTARIS' : 'PORTAL PRIBADI KLIEN'}</span>
-          <FileCheck className="w-3.5 h-3.5 text-[#88bbaa]" />
+        {/* Workspace label (Strict RBAC - No Role Switcher) */}
+        <div className="pt-3 pb-2 px-2 text-[10px] font-bold tracking-widest text-[#8c9e99] uppercase flex items-center justify-between">
+          <span>
+            {isSuperAdmin
+              ? 'PUSAT KENDALI SUPER ADMIN'
+              : isAdmin
+              ? 'RUANG KERJA NOTARIS'
+              : 'PORTAL PRIBADI KLIEN'}
+          </span>
+          {isSuperAdmin ? (
+            <Activity className="w-3.5 h-3.5 text-indigo-400" />
+          ) : (
+            <FileCheck className="w-3.5 h-3.5 text-[#88bbaa]" />
+          )}
         </div>
 
         {/* Navigation list */}
@@ -196,16 +203,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition cursor-pointer ${
                   isActive
-                    ? isAdmin
+                    ? isSuperAdmin
+                      ? 'bg-[#1b2a47] text-white shadow-xs border-l-3 border-indigo-400'
+                      : isAdmin
                       ? 'bg-[#26413c] text-white shadow-xs border-l-3 border-[#b88070]'
                       : 'bg-[#3b525e] text-white shadow-xs border-l-3 border-[#9bb7c0]'
+                    : isSuperAdmin
+                    ? 'text-[#a5b4cf] hover:text-white hover:bg-[#142036]'
                     : isAdmin
                     ? 'text-[#aebbb7] hover:text-white hover:bg-[#1b3531]'
                     : 'text-[#9bb7c0] hover:text-white hover:bg-[#30434d]'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className={isActive ? 'text-white' : 'text-[#8c9e99]'}>
+                  <span
+                    className={
+                      isActive
+                        ? 'text-white'
+                        : isSuperAdmin
+                        ? 'text-[#7d93b8]'
+                        : 'text-[#8c9e99]'
+                    }
+                  >
                     {item.icon}
                   </span>
                   <span>{item.label}</span>
@@ -214,7 +233,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full ${
                       isActive
-                        ? isAdmin
+                        ? isSuperAdmin
+                          ? 'bg-indigo-600/50 text-indigo-200'
+                          : isAdmin
                           ? 'bg-[#67303a] text-[#e8c4b9]'
                           : 'bg-[#526d78] text-[#dbe9ed]'
                         : 'bg-black/20 text-gray-300'
@@ -231,17 +252,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Sidebar Security & System Footer */}
         <div
           className={`pt-3 border-t space-y-2.5 ${
-            isAdmin ? 'border-[#233a35]' : 'border-[#334651]'
+            isSuperAdmin
+              ? 'border-[#1a2942]'
+              : isAdmin
+              ? 'border-[#233a35]'
+              : 'border-[#334651]'
           }`}
         >
           {/* SQLite Backend Status */}
           <div
             className={`px-3 py-1.5 rounded-lg border flex items-center justify-between text-[11px] ${
-              isAdmin ? 'bg-[#0e1d1a] border-[#233a35]' : 'bg-[#1e2c34] border-[#344855]'
+              isSuperAdmin
+                ? 'bg-[#070e1b] border-[#1d2b45]'
+                : isAdmin
+                ? 'bg-[#0e1d1a] border-[#233a35]'
+                : 'bg-[#1e2c34] border-[#344855]'
             }`}
           >
             <div className="flex items-center gap-2">
-              <Database className="w-3.5 h-3.5 text-[#88bbaa]" />
+              <Database
+                className={`w-3.5 h-3.5 ${isSuperAdmin ? 'text-indigo-400' : 'text-[#88bbaa]'}`}
+              />
               <span className="text-gray-300">SQLite REST API</span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -260,34 +291,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Dongle / Biometric Security Card */}
+          {/* Dongle / Biometric / Root Security Card */}
           <div
             className={`p-3 rounded-lg border ${
-              isAdmin
+              isSuperAdmin
+                ? 'border-[#23385d] bg-[#101c33]'
+                : isAdmin
                 ? 'border-[#2d4a45] bg-[#19302c]'
                 : 'border-[#405660] bg-[#2d414b]'
             }`}
           >
             <div className="flex items-center justify-between text-xs font-semibold text-[#dce8e4]">
               <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-[#88bbaa]" />
-                <span>{isAdmin ? 'Mode Aman Aktif' : 'Akses Pribadi Aman'}</span>
+                <Shield
+                  className={`w-4 h-4 ${isSuperAdmin ? 'text-indigo-400' : 'text-[#88bbaa]'}`}
+                />
+                <span>
+                  {isSuperAdmin
+                    ? 'Akses Root Terproteksi'
+                    : isAdmin
+                    ? 'Mode Aman Aktif'
+                    : 'Akses Pribadi Aman'}
+                </span>
               </div>
-              {isAdmin ? (
+              {isSuperAdmin ? (
+                <Server className="w-3.5 h-3.5 text-indigo-400" />
+              ) : isAdmin ? (
                 <Usb className="w-3.5 h-3.5 text-emerald-400" />
               ) : (
                 <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300" />
               )}
             </div>
             <p className="text-[10px] text-gray-300 mt-1 mb-2">
-              {isAdmin
+              {isSuperAdmin
+                ? 'Kontrol Penuh Sistem & Pengguna'
+                : isAdmin
                 ? 'Dongle terhubung · Sesi terenkripsi AES-256'
                 : 'Biometrik aktif · Data terenkripsi'}
             </p>
             <div className="w-full h-1 bg-black/30 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full w-5/6 ${
-                  isAdmin ? 'bg-emerald-500' : 'bg-[#8db3b9]'
+                  isSuperAdmin
+                    ? 'bg-indigo-500'
+                    : isAdmin
+                    ? 'bg-emerald-500'
+                    : 'bg-[#8db3b9]'
                 }`}
               />
             </div>
@@ -296,7 +345,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* User profile with logout button */}
           <div
             className={`p-2 rounded-lg border flex items-center justify-between ${
-              isAdmin
+              isSuperAdmin
+                ? 'bg-[#070e1b] border-[#1d2b45]'
+                : isAdmin
                 ? 'bg-[#10231f] border-[#233a35]'
                 : 'bg-[#202e36] border-[#364b58]'
             }`}
@@ -304,7 +355,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center gap-2.5 min-w-0">
               <div
                 className={`w-8 h-8 rounded-full font-serif font-bold text-xs grid place-items-center shrink-0 ${
-                  isAdmin
+                  isSuperAdmin
+                    ? 'bg-indigo-700 text-indigo-100'
+                    : isAdmin
                     ? 'bg-[#77323d] text-[#f0dfda]'
                     : 'bg-[#526d78] text-[#e8f0f2]'
                 }`}
@@ -316,7 +369,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {session.displayName}
                 </div>
                 <div className="text-[9px] text-[#82928e] truncate">
-                  {isAdmin ? 'Notaris Utama · Administrator' : 'Klien Terverifikasi'}
+                  {isSuperAdmin
+                    ? 'Super Administrator · Root'
+                    : isAdmin
+                    ? 'Notaris Utama · Administrator'
+                    : 'Klien Terverifikasi'}
                 </div>
               </div>
             </div>

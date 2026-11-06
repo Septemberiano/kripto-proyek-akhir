@@ -73,10 +73,12 @@ export interface EncryptedFileInfo {
   description: string;
 }
 
+export type UserRole = 'superadmin' | 'admin' | 'client';
+
 export interface UserSession {
   username: string;
   displayName: string;
-  role: 'admin' | 'client';
+  role: UserRole;
   loginTime: string;
   isDongleConnected: boolean;
   token: string;
@@ -85,11 +87,42 @@ export interface UserSession {
   phone?: string;
 }
 
+export interface UserItem {
+  id: string;
+  username: string;
+  role: UserRole;
+  name: string;
+  nik?: string;
+  email?: string;
+  phone?: string;
+  created_at: string;
+}
+
+export interface SystemStats {
+  users: {
+    total: number;
+    superadmin: number;
+    admin: number;
+    client: number;
+  };
+  documents: {
+    total: number;
+    verified: number;
+    pending: number;
+    review: number;
+  };
+  auditLogsCount: number;
+  clientRequestsCount: number;
+  databaseSizeKb: number;
+  databaseStatus: string;
+  timestamp: string;
+}
+
 export interface RegisterPayload {
   username: string;
   password: string;
   name: string;
-  role?: 'admin' | 'client';
+  role?: UserRole;
   nik?: string;
   email?: string;
   phone?: string;

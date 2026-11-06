@@ -9,6 +9,7 @@ import {
   RefreshCw,
   X,
   Lock,
+  Server,
 } from 'lucide-react';
 import type { UserSession } from '../types';
 
@@ -112,21 +113,29 @@ export const Header: React.FC<HeaderProps> = ({
           <strong className="font-mono text-[#182b29]">{formatTimer(secondsRemaining)}</strong>
         </div>
 
-        {/* Dongle status pill */}
+        {/* Status pill: Super Admin, Notaris, or Klien */}
         <div
           className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium ${
-            session.role === 'admin'
+            session.role === 'superadmin'
+              ? 'bg-[#101f38] text-indigo-200'
+              : session.role === 'admin'
               ? 'bg-[#142825] text-[#dce8e4]'
               : 'bg-[#263640] text-[#dbe9ed]'
           }`}
         >
-          <Shield
-            className={`w-3.5 h-3.5 ${
-              session.role === 'admin' ? 'text-emerald-400' : 'text-cyan-300'
-            }`}
-          />
+          {session.role === 'superadmin' ? (
+            <Server className="w-3.5 h-3.5 text-indigo-400" />
+          ) : (
+            <Shield
+              className={`w-3.5 h-3.5 ${
+                session.role === 'admin' ? 'text-emerald-400' : 'text-cyan-300'
+              }`}
+            />
+          )}
           <span>
-            {session.role === 'admin'
+            {session.role === 'superadmin'
+              ? `Super Admin: ${session.displayName.split(' ')[0]}`
+              : session.role === 'admin'
               ? `Dongle: ${session.displayName.split(' ')[0]}`
               : `Portal: ${session.displayName.split(' ')[0]}`}
           </span>

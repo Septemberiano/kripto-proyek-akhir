@@ -1,4 +1,13 @@
-import type { AuditLogItem, DocumentItem, UserSession, RegisterPayload, ClientRequestItem } from '../types';
+import type {
+  AuditLogItem,
+  DocumentItem,
+  UserSession,
+  RegisterPayload,
+  ClientRequestItem,
+  UserRole,
+  UserItem,
+  SystemStats,
+} from '../types';
 import { sha256 } from '../utils/crypto';
 
 const API_BASE_URL = 'http://localhost:5000/api';
@@ -108,6 +117,16 @@ const DEFAULT_SEED_LOGS: AuditLogItem[] = [
 
 // Fallback seed users
 const DEFAULT_SEED_USERS = [
+  {
+    id: 'usr-superadmin-1',
+    username: 'superadmin',
+    password_hash: 'e34f92a20532a873cb3184398070b4b82a8fa29cf48572c203dc5f0fa6158231', // superadmin123
+    role: 'superadmin' as const,
+    name: 'Ahmad Fauzi (Sysadmin)',
+    nik: '3171000000000001',
+    email: 'superadmin@arsipnusa.id',
+    phone: '+62 811-0000-999',
+  },
   {
     id: 'usr-admin-1',
     username: 'admin',
@@ -237,7 +256,7 @@ export async function checkBackendHealth(): Promise<{ isOnline: boolean; message
 export async function loginUser(
   username: string,
   password: string,
-  expectedRole: 'admin' | 'client'
+  expectedRole: UserRole
 ): Promise<{ success: boolean; session?: UserSession; error?: string }> {
   const passwordHash = await sha256(password);
   const cleanUsername = username.trim().toLowerCase();
@@ -266,7 +285,7 @@ export async function loginUser(
         displayName: u.name,
         role: u.role,
         loginTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-        isDongleConnected: u.role === 'admin',
+        isDongleConnected: u.role === 'admin' || u.role === 'superadmin',
         token: `AN-VAULT-${passwordHash.slice(0, 16).toUpperCase()}`,
         nik: u.nik,
         email: u.email,
@@ -304,7 +323,7 @@ export async function loginUser(
     displayName: matchedUser.name,
     role: matchedUser.role,
     loginTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-    isDongleConnected: matchedUser.role === 'admin',
+    isDongleConnected: matchedUser.role === 'admin' || matchedUser.role === 'superadmin',
     token: `AN-VAULT-${passwordHash.slice(0, 16).toUpperCase()}`,
     nik: matchedUser.nik,
     email: matchedUser.email,
@@ -514,4 +533,179 @@ export async function fetchAuditLogs(): Promise<AuditLogItem[]> {
   } catch {}
 
   return getLocalLogs();
+}
+
+// ================= SUPER ADMIN USER & SYSTEM APIS =================
+
+export async function fetchUsers(): Promise<UserItem[]> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/users`, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data: UserItem[] = await res.json();
+      return data;
+    }
+  } catch {}
+
+  // Fallback to local storage
+  const locals = getLocalUsers();
+  return locals.map((u: any) => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    name: u.name,
+    nik: u.nik,
+    email: u.email,
+    phone: u.phone,
+    created_at: u.created_at || new Date().toISOString(),
+  }));
+}
+
+export async function createUserByAdmin(
+  payload: RegisterPayload
+): Promise<{ success: boolean; user?: UserItem; error?: string }> {
+  try {
+    const passwordHash = await sha256(payload.password);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        password_hash: passwordHash,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok) {
+      return { success: true, user: json };
+    }
+    return { success: false, error: json.error || 'Gagal menambahkan pengguna.' };
+  } catch {
+    // Offline fallback
+    const locals = getLocalUsers();
+    const cleanUsername = payload.username.trim().toLowerCase();
+    if (locals.some((u: any) => u.username.toLowerCase() === cleanUsername)) {
+      return { success: false, error: `Username "${cleanUsername}" sudah digunakan.` };
+    }
+    const newUser: any = {
+      id: `usr-${payload.role || 'client'}-${Date.now()}`,
+      username: cleanUsername,
+      role: payload.role || 'client',
+      name: payload.name.trim(),
+      nik: payload.nik?.trim() || '',
+      email: payload.email?.trim() || '',
+      phone: payload.phone?.trim() || '',
+      password_hash: await sha256(payload.password),
+      created_at: new Date().toISOString(),
+    };
+    saveLocalUsers([newUser, ...locals]);
+    return { success: true, user: newUser };
+  }
+}
+
+export async function updateUser(
+  id: string,
+  payload: Partial<RegisterPayload>
+): Promise<{ success: boolean; user?: UserItem; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok && json.success) {
+      return { success: true, user: json.user };
+    }
+    return { success: false, error: json.error || 'Gagal memperbarui pengguna.' };
+  } catch {
+    // Offline fallback
+    const locals = getLocalUsers();
+    const idx = locals.findIndex((u: any) => u.id === id);
+    if (idx !== -1) {
+      const updated = {
+        ...locals[idx],
+        ...payload,
+        name: payload.name || locals[idx].name,
+        role: payload.role || locals[idx].role,
+      };
+      locals[idx] = updated;
+      saveLocalUsers(locals);
+      return { success: true, user: updated };
+    }
+    return { success: false, error: 'Pengguna tidak ditemukan.' };
+  }
+}
+
+export async function deleteUser(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users/${id}`, {
+      method: 'DELETE',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok && json.success) {
+      return { success: true };
+    }
+    return { success: false, error: json.error || 'Gagal menghapus pengguna.' };
+  } catch {
+    const locals = getLocalUsers();
+    const filtered = locals.filter((u: any) => u.id !== id);
+    saveLocalUsers(filtered);
+    return { success: true };
+  }
+}
+
+export async function fetchSystemStats(): Promise<SystemStats> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/system/stats`, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  const docs = getLocalDocs();
+  const logs = getLocalLogs();
+  const users = getLocalUsers();
+  const reqs = getLocalRequests();
+
+  return {
+    users: {
+      total: users.length,
+      superadmin: users.filter((u: any) => u.role === 'superadmin').length,
+      admin: users.filter((u: any) => u.role === 'admin').length,
+      client: users.filter((u: any) => u.role === 'client').length,
+    },
+    documents: {
+      total: docs.length,
+      verified: docs.filter((d) => d.status === 'Terverifikasi').length,
+      pending: docs.filter((d) => d.status === 'Menunggu tanda tangan').length,
+      review: docs.filter((d) => d.status === 'Dalam peninjauan').length,
+    },
+    auditLogsCount: logs.length,
+    clientRequestsCount: reqs.length,
+    databaseSizeKb: 40,
+    databaseStatus: 'Penyimpanan Lokal Aktif',
+    timestamp: new Date().toISOString(),
+  };
 }

@@ -10,22 +10,30 @@ import { ChainOfTitleView } from './components/views/ChainOfTitleView';
 import { SuperEncryptionView } from './components/views/SuperEncryptionView';
 import { SteganographyView } from './components/views/SteganographyView';
 import { ClientsView } from './components/views/ClientsView';
+import { SuperAdminView } from './components/views/SuperAdminView';
 import { AddDocumentModal } from './components/AddDocumentModal';
 import { ClientOverviewView } from './components/views/client/ClientOverviewView';
 import { ClientRequestsView } from './components/views/client/ClientRequestsView';
 import { ClientRequestModal } from './components/client/ClientRequestModal';
 
-import type { DocumentItem, AuditLogItem, UserSession, ClientRequestItem } from './types';
+import type { DocumentItem, AuditLogItem, UserSession, ClientRequestItem, UserRole } from './types';
 import {
   fetchDocuments,
   createDocument,
   fetchAuditLogs,
   checkBackendHealth,
   fetchClientRequests,
+  fetchUsers,
 } from './services/api';
-import { CheckCircle2, Shield } from 'lucide-react';
+import { CheckCircle2, Shield, Server } from 'lucide-react';
 
 const SESSION_STORAGE_KEY = 'arsipnusa_user_session';
+
+const getDefaultTab = (role: UserRole): NavTab => {
+  if (role === 'superadmin') return 'Manajemen Pengguna';
+  if (role === 'admin') return 'Ikhtisar';
+  return 'Beranda';
+};
 
 export function App() {
   // Authentication State
@@ -39,7 +47,9 @@ export function App() {
   });
 
   // Navigation & UI State
-  const [activeTab, setActiveTab] = useState<NavTab>('Ikhtisar');
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    return session ? getDefaultTab(session.role) : 'Ikhtisar';
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -49,10 +59,13 @@ export function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [clientRequests, setClientRequests] = useState<ClientRequestItem[]>([]);
+  const [usersCount, setUsersCount] = useState<number>(5);
   const [isBackendOnline, setIsBackendOnline] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const isSuperAdmin = session?.role === 'superadmin';
   const isAdmin = session?.role === 'admin';
+  const isClient = session?.role === 'client';
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -71,16 +84,19 @@ export function App() {
     setAuditLogs(logs);
 
     if (session) {
-      const reqs = await fetchClientRequests(isAdmin ? undefined : session.displayName);
+      if (session.role === 'superadmin') {
+        const uList = await fetchUsers();
+        setUsersCount(uList.length);
+      }
+      const reqs = await fetchClientRequests(session.role === 'client' ? session.displayName : undefined);
       setClientRequests(reqs);
     }
-  }, [session, isAdmin]);
+  }, [session]);
 
   useEffect(() => {
     if (session) {
       loadData();
-      // Set appropriate default tab when logging in
-      setActiveTab(session.role === 'admin' ? 'Ikhtisar' : 'Beranda');
+      setActiveTab(getDefaultTab(session.role));
     }
   }, [session, loadData]);
 
@@ -92,10 +108,14 @@ export function App() {
     } catch {
       // ignore
     }
-    setActiveTab(newSession.role === 'admin' ? 'Ikhtisar' : 'Beranda');
+    setActiveTab(getDefaultTab(newSession.role));
     showToast(
       `Otorisasi Berhasil. Selamat datang di ${
-        newSession.role === 'admin' ? 'Ruang Kerja Notaris' : 'Client Trust Portal'
+        newSession.role === 'superadmin'
+          ? 'Pusat Kendali Super Admin'
+          : newSession.role === 'admin'
+          ? 'Ruang Kerja Notaris'
+          : 'Client Trust Portal'
       }, ${newSession.displayName}!`
     );
   };
@@ -109,20 +129,6 @@ export function App() {
       // ignore
     }
     setActiveTab('Ikhtisar');
-  };
-
-  // Handle Role Preview Switcher (Allows testing both views effortlessly)
-  const handleSwitchRolePreview = (nextRole: 'admin' | 'client') => {
-    if (!session) return;
-    const switchedSession: UserSession = {
-      ...session,
-      role: nextRole,
-      displayName: nextRole === 'admin' ? 'Natasha S.H., M.Kn.' : 'Rina Hartono',
-      isDongleConnected: nextRole === 'admin',
-    };
-    setSession(switchedSession);
-    setActiveTab(nextRole === 'admin' ? 'Ikhtisar' : 'Beranda');
-    showToast(`Beralih tampilan pratinjau: ${nextRole === 'admin' ? 'Konsol Notaris' : 'Portal Klien'}`);
   };
 
   // Handle Create Document (POST /api/documents)
@@ -149,7 +155,7 @@ export function App() {
 
   // Filter documents specific to the logged-in client
   const clientDocuments = useMemo(() => {
-    if (!session || isAdmin) return documents;
+    if (!session || !isClient) return documents;
     const clientNameLower = session.displayName.toLowerCase();
     const userMatched = documents.filter((d) =>
       d.client.toLowerCase().includes(clientNameLower) ||
@@ -159,25 +165,31 @@ export function App() {
     return userMatched.length > 0
       ? userMatched
       : documents.filter((d) => d.client.toLowerCase().includes('hartono'));
-  }, [documents, session, isAdmin]);
+  }, [documents, session, isClient]);
 
   // 1. ACCESS CONTROL: If not authenticated, block dashboard and show Login
   if (!session) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // 2. MAIN DASHBOARD: Adapt visual styles and workspace depending on Role
+  // 2. MAIN DASHBOARD: Adapt visual styles and workspace depending on Role (Strict RBAC)
   return (
     <div
       className={`app-shell min-h-screen flex flex-col font-sans transition-colors duration-300 ${
-        isAdmin ? 'admin-mode bg-[#f5f3ee]' : 'client-mode bg-white'
+        isSuperAdmin
+          ? 'superadmin-mode bg-[#f8fafc]'
+          : isAdmin
+          ? 'admin-mode bg-[#f5f3ee]'
+          : 'client-mode bg-white'
       }`}
     >
       {/* Toast Notification */}
       {toastMessage && (
         <div
           className={`fixed bottom-6 right-6 z-50 p-4 rounded-xl text-white border shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom-5 ${
-            isAdmin
+            isSuperAdmin
+              ? 'bg-[#0f1d38] border-[#223b6c]'
+              : isAdmin
               ? 'bg-[#142825] border-[#2d4a45]'
               : 'bg-[#263640] border-[#3a4c56]'
           }`}
@@ -187,7 +199,7 @@ export function App() {
         </div>
       )}
 
-      {/* Sidebar Navigation */}
+      {/* Sidebar Navigation (Strict RBAC - No Role Switcher) */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -198,7 +210,7 @@ export function App() {
         isBackendOnline={isBackendOnline}
         documentsCount={documents.length}
         requestsCount={clientRequests.length}
-        onSwitchRolePreview={handleSwitchRolePreview}
+        usersCount={usersCount}
       />
 
       {/* Main Content Area */}
@@ -210,7 +222,7 @@ export function App() {
           onOpenAddModal={() => {
             if (isAdmin) {
               setIsAddModalOpen(true);
-            } else {
+            } else if (isClient) {
               setIsRequestModalOpen(true);
             }
           }}
@@ -220,7 +232,21 @@ export function App() {
         />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {/* ================= ADMIN VIEWS ================= */}
+          {/* ================= 1. SUPER ADMIN VIEWS ================= */}
+          {isSuperAdmin && (
+            <SuperAdminView
+              activeTab={
+                activeTab as
+                  | 'Manajemen Pengguna'
+                  | 'Status Sistem & Database'
+                  | 'Audit Log Global'
+              }
+              searchQuery={searchQuery}
+              onRefreshStats={loadData}
+            />
+          )}
+
+          {/* ================= 2. NOTARIS (ADMIN) VIEWS ================= */}
           {isAdmin && (
             <>
               {activeTab === 'Ikhtisar' && (
@@ -267,8 +293,8 @@ export function App() {
             </>
           )}
 
-          {/* ================= CLIENT (USER) VIEWS ================= */}
-          {!isAdmin && (
+          {/* ================= 3. CLIENT (USER) VIEWS ================= */}
+          {isClient && (
             <>
               {activeTab === 'Beranda' && (
                 <ClientOverviewView
@@ -316,21 +342,34 @@ export function App() {
         {/* Global Footer */}
         <footer
           className={`w-full px-6 py-4 border-t text-center text-xs flex flex-col sm:flex-row items-center justify-between gap-2 mt-auto ${
-            isAdmin
+            isSuperAdmin
+              ? 'bg-[#f1f5f9] border-[#cbd5e1] text-slate-600'
+              : isAdmin
               ? 'bg-[#fbfaf7] border-[#dfddd6] text-[#69736f]'
               : 'bg-white border-slate-200 text-slate-600 shadow-xs'
           }`}
         >
           <div className="flex items-center gap-2">
-            <Shield className={`w-4 h-4 ${isAdmin ? 'text-[#2d6958]' : 'text-[#3f606e]'}`} />
+            {isSuperAdmin ? (
+              <Server className="w-4 h-4 text-indigo-600" />
+            ) : (
+              <Shield className={`w-4 h-4 ${isAdmin ? 'text-[#2d6958]' : 'text-[#3f606e]'}`} />
+            )}
             <span>
-              {isAdmin
+              {isSuperAdmin
+                ? 'Super Admin Control Center · Akses Root & Manajemen Sistem Terisolasi'
+                : isAdmin
                 ? 'Sistem Notaris Sehat · Pencadangan Terenkripsi Tersegel · Standar ISO 27001'
                 : 'Koneksi Klien Aman · Enkripsi Ujung-ke-Ujung Aktif · Verifikasi Identitas Sah'}
             </span>
           </div>
           <span className="font-mono text-[11px] opacity-75">
-            ArsipNusa v2.4.1 · {isAdmin ? 'Notarial Vault Console' : 'Client Trust Portal'}
+            ArsipNusa v2.4.1 ·{' '}
+            {isSuperAdmin
+              ? 'Super Admin Console'
+              : isAdmin
+              ? 'Notarial Vault Console'
+              : 'Client Trust Portal'}
           </span>
         </footer>
       </div>
