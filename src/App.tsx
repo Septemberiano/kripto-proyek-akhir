@@ -170,7 +170,7 @@ export function App() {
   return (
     <div
       className={`app-shell min-h-screen flex flex-col font-sans transition-colors duration-300 ${
-        isAdmin ? 'admin-mode bg-[#f5f3ee]' : 'client-mode bg-[#f2f7f8]'
+        isAdmin ? 'admin-mode bg-[#f5f3ee]' : 'client-mode bg-white'
       }`}
     >
       {/* Toast Notification */}
@@ -318,7 +318,7 @@ export function App() {
           className={`w-full px-6 py-4 border-t text-center text-xs flex flex-col sm:flex-row items-center justify-between gap-2 mt-auto ${
             isAdmin
               ? 'bg-[#fbfaf7] border-[#dfddd6] text-[#69736f]'
-              : 'bg-[#edf4f6] border-[#d2dde0] text-[#526d78]'
+              : 'bg-white border-slate-200 text-slate-600 shadow-xs'
           }`}
         >
           <div className="flex items-center gap-2">

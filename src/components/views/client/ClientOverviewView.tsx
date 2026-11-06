@@ -54,16 +54,16 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
       </section>
 
       {/* Security notice for client */}
-      <section className="p-4 rounded-xl bg-[#edf4f6] text-[#2c404a] border border-[#d2dde0] border-l-4 border-l-[#527784] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+      <section className="p-4 rounded-xl bg-white text-slate-800 border border-emerald-200 border-l-4 border-l-emerald-600 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
         <div className="flex items-start gap-3.5">
-          <div className="p-2.5 rounded-lg bg-[#dfecee] text-[#3f606e] shrink-0 mt-0.5">
+          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-700 shrink-0 mt-0.5">
             <Lock className="w-5 h-5" />
           </div>
           <div>
-            <strong className="text-sm font-semibold text-[#1e2d35] block">
+            <strong className="text-sm font-semibold text-slate-900 block">
               Hanya Anda dan Notaris Natasha S.H., M.Kn. yang memiliki kunci akses ke berkas ini.
             </strong>
-            <p className="text-xs text-[#526974] mt-0.5">
+            <p className="text-xs text-slate-600 mt-0.5">
               Setiap perubahan kepemilikan dan tanda tangan akta dilindungi jejak kriptografis anti-manipulasi (Chain of Title).
             </p>
           </div>
@@ -71,7 +71,7 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
 
         <button
           onClick={onOpenRequestModal}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#3f606e] hover:bg-[#334f5b] text-white text-xs font-semibold shrink-0 transition cursor-pointer"
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>Ajukan Permintaan</span>
@@ -80,89 +80,89 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
 
       {/* Metric Cards (Client context) */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-[#fbfaf7] border border-[#dfddd6] shadow-xs">
+        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="p-2 rounded-lg bg-[#3f606e]/10 text-[#3f606e]">
+            <span className="p-2 rounded-lg bg-emerald-50 text-emerald-700">
               <Building2 className="w-4 h-4" />
             </span>
             <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
               Semua Sah
             </span>
           </div>
-          <span className="text-[10px] font-bold tracking-wider text-[#69736f] uppercase block">
+          <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase block">
             ASET TERDAFTAR SAYA
           </span>
-          <div className="font-serif text-2xl font-bold text-[#1e2d35] mt-0.5">
+          <div className="font-serif text-2xl font-bold text-slate-900 mt-0.5">
             {clientDocuments.length > 0 ? clientDocuments.length : 3}
           </div>
-          <p className="text-xs text-[#69736f] mt-1">
-            Tercatat di <b className="text-[#1e2d35]">BPN & Kemenkumham</b>
+          <p className="text-xs text-slate-500 mt-1">
+            Tercatat di <b className="text-slate-800">BPN & Kemenkumham</b>
           </p>
         </div>
 
-        <div className="p-4 rounded-xl bg-[#fbfaf7] border border-[#dfddd6] shadow-xs">
+        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="p-2 rounded-lg bg-[#762e3b]/10 text-[#762e3b]">
+            <span className="p-2 rounded-lg bg-rose-50 text-rose-700">
               <FileText className="w-4 h-4" />
             </span>
             <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
               1 perlu tanda tangan
             </span>
           </div>
-          <span className="text-[10px] font-bold tracking-wider text-[#69736f] uppercase block">
+          <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase block">
             DOKUMEN HUKUM & WASIAT
           </span>
-          <div className="font-serif text-2xl font-bold text-[#1e2d35] mt-0.5">4</div>
-          <p className="text-xs text-[#69736f] mt-1">3 terverifikasi · 1 menunggu persetujuan</p>
+          <div className="font-serif text-2xl font-bold text-slate-900 mt-0.5">4</div>
+          <p className="text-xs text-slate-500 mt-1">3 terverifikasi · 1 menunggu persetujuan</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-[#fbfaf7] border border-[#dfddd6] shadow-xs">
+        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="p-2 rounded-lg bg-amber-100 text-amber-800">
+            <span className="p-2 rounded-lg bg-amber-50 text-amber-700">
               <Clock className="w-4 h-4" />
             </span>
             <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
               Prioritas
             </span>
           </div>
-          <span className="text-[10px] font-bold tracking-wider text-[#69736f] uppercase block">
+          <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase block">
             PERLU TINDAKAN ANDA
           </span>
-          <div className="font-serif text-2xl font-bold text-[#1e2d35] mt-0.5">1</div>
-          <p className="text-xs text-[#69736f] mt-1">Tanda tangan digital Surat Wasiat</p>
+          <div className="font-serif text-2xl font-bold text-slate-900 mt-0.5">1</div>
+          <p className="text-xs text-slate-500 mt-1">Tanda tangan digital Surat Wasiat</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-[#fbfaf7] border border-[#dfddd6] shadow-xs">
+        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="p-2 rounded-lg bg-emerald-100 text-emerald-800">
+            <span className="p-2 rounded-lg bg-emerald-50 text-emerald-700">
               <Link2 className="w-4 h-4" />
             </span>
             <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
               Terverifikasi
             </span>
           </div>
-          <span className="text-[10px] font-bold tracking-wider text-[#69736f] uppercase block">
+          <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase block">
             RIWAYAT KEPEMILIKAN
           </span>
-          <div className="font-serif text-2xl font-bold text-[#1e2d35] mt-0.5">12</div>
-          <p className="text-xs text-[#69736f] mt-1">Blok tersimpan dalam buku besar sah</p>
+          <div className="font-serif text-2xl font-bold text-slate-900 mt-0.5">12</div>
+          <p className="text-xs text-slate-500 mt-1">Blok tersimpan dalam buku besar sah</p>
         </div>
       </section>
 
       {/* Main Grid: My Documents & Recent Updates */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: My Assets & Deeds Table */}
-        <div className="lg:col-span-2 bg-[#fbfaf7] border border-[#dfddd6] rounded-xl shadow-xs overflow-hidden">
-          <div className="p-4 sm:p-5 border-b border-[#dfddd6] flex items-center justify-between">
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <h2 className="font-serif text-lg text-[#1e2d35] font-medium">Aset & Dokumen Saya</h2>
-              <p className="text-xs text-[#69736f] mt-0.5">
+              <h2 className="font-serif text-lg text-slate-900 font-semibold">Aset & Dokumen Saya</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
                 Hanya data yang terhubung dengan akun dan identitas resmi Anda
               </p>
             </div>
             <button
               onClick={() => onNavigateTab('Aset Saya')}
-              className="text-xs font-semibold text-[#3f606e] hover:text-[#1e2d35] flex items-center gap-1 cursor-pointer"
+              className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 flex items-center gap-1 cursor-pointer"
             >
               <span>Lihat semua</span>
               <ChevronRight className="w-4 h-4" />
@@ -171,7 +171,7 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-[#f0ede6] text-[#69736f] font-semibold uppercase text-[10px] tracking-wider border-b border-[#dfddd6]">
+              <thead className="bg-slate-50 text-slate-600 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-4">Nama Dokumen / Aset</th>
                   <th className="py-3 px-3">Klasifikasi</th>
@@ -180,7 +180,7 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
                   <th className="py-3 px-4 text-right">Nilai Tercatat</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#dfddd6]">
+              <tbody className="divide-y divide-slate-100">
                 {clientDocuments.length > 0 ? (
                   clientDocuments.map((doc) => (
                     <tr key={doc.id} className="hover:bg-[#f5f3ee] transition">
@@ -230,9 +230,9 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
 
         {/* Right Column: Updates from Notary */}
         <div className="space-y-4">
-          <div className="bg-[#fbfaf7] border border-[#dfddd6] rounded-xl shadow-xs p-5">
-            <h2 className="font-serif text-base text-[#1e2d35] font-medium">Pembaruan untuk Anda</h2>
-            <p className="text-[11px] text-[#69736f] mb-3">Informasi langsung dari kantor notaris</p>
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+            <h2 className="font-serif text-base text-slate-900 font-semibold">Pembaruan untuk Anda</h2>
+            <p className="text-[11px] text-slate-500 mb-3">Informasi langsung dari kantor notaris</p>
 
             <div className="space-y-3 text-xs">
               <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-950 space-y-1">
@@ -260,7 +260,7 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
 
             <button
               onClick={() => onNavigateTab('Permintaan')}
-              className="w-full mt-4 py-2 rounded-lg bg-[#edf2f4] hover:bg-[#e1e9ec] text-xs font-semibold text-[#1e2d35] transition flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full mt-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-800 transition flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <span>Lihat Riwayat Permintaan Lengkap</span>
               <ChevronRight className="w-3.5 h-3.5" />

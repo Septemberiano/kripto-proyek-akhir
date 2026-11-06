@@ -69,12 +69,12 @@ export const ClientRequestsView: React.FC<ClientRequestsViewProps> = ({
           filtered.map((req) => (
             <div
               key={req.id}
-              className="p-5 rounded-xl bg-[#fbfaf7] border border-[#dfddd6] shadow-xs hover:border-[#526d78] transition space-y-3"
+              className="p-5 rounded-xl bg-white border border-slate-200 shadow-sm hover:border-emerald-500 transition space-y-3"
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <span className="text-[10px] font-mono text-[#69736f]">{req.id}</span>
-                  <h3 className="font-semibold text-sm text-[#1e2d35]">{req.title}</h3>
+                  <span className="text-[10px] font-mono text-slate-500">{req.id}</span>
+                  <h3 className="font-semibold text-sm text-slate-900">{req.title}</h3>
                 </div>
                 <span
                   className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
@@ -90,12 +90,12 @@ export const ClientRequestsView: React.FC<ClientRequestsViewProps> = ({
                 </span>
               </div>
 
-              <div className="text-xs text-[#526974] space-y-1">
-                <div className="font-medium text-[#1e2d35]">Kategori: {req.category}</div>
-                {req.notes && <p className="text-[11px] bg-white p-2.5 rounded border border-[#dfddd6]">{req.notes}</p>}
+              <div className="text-xs text-slate-600 space-y-1">
+                <div className="font-medium text-slate-900">Kategori: {req.category}</div>
+                {req.notes && <p className="text-[11px] bg-slate-50 p-2.5 rounded border border-slate-200">{req.notes}</p>}
               </div>
 
-              <div className="pt-2 border-t border-[#dfddd6] flex items-center justify-between text-[10px] text-[#69736f]">
+              <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
                 <span className="flex items-center gap-1">
                   <Calendar className="w-3 h-3" />
                   Diajukan: {new Date(req.created_at).toLocaleDateString('id-ID')}
