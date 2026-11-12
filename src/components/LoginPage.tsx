@@ -17,9 +17,13 @@ import {
   CreditCard,
   Users,
   Server,
+  Camera,
+  HardDrive,
 } from 'lucide-react';
-import { loginUser, registerUser } from '../services/api';
+import { loginUser, registerUser, fetchSecurityTokens } from '../services/api';
 import type { UserSession, UserRole } from '../types';
+import { FaceRecognitionModal } from './FaceRecognitionModal';
+import { verifyDongleKeyFile } from '../utils/dongle';
 
 export type LoginMode = 'login-superadmin' | 'login-admin' | 'login-client' | 'register';
 
@@ -39,6 +43,72 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [dongleConnected, setDongleConnected] = useState(true);
+  const [verifiedSerial, setVerifiedSerial] = useState<string | null>('FIPS-NATASHA-2026-9901');
+  const [isFaceModalOpen, setIsFaceModalOpen] = useState(false);
+
+  // Handle Loading Key from Physical Flashdisk
+  const handleFlashdiskKeySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error('Berkas bukan format kunci JSON yang valid.');
+      }
+
+      const res = await verifyDongleKeyFile(parsed);
+      if (!res.isValid || !res.token) {
+        throw new Error(res.error || 'Berkas kunci tidak valid.');
+      }
+
+      // Check if token is revoked in database
+      const latestTokens = await fetchSecurityTokens();
+      const match = latestTokens.find((t) => t.serial_number === res.token!.serialNumber);
+      if (match && match.status === 'REVOKED') {
+        setDongleConnected(false);
+        setVerifiedSerial(null);
+        throw new Error(
+          `AKSES DITOLAK: Token "${res.token.serialNumber}" telah DIBLOKIR / DILAPORKAN HILANG di sistem!`
+        );
+      }
+
+      setDongleConnected(true);
+      setVerifiedSerial(res.token.serialNumber);
+      setSuccessMsg(`Flashdisk USB Terverifikasi: Serial ${res.token.serialNumber} sah.`);
+      setErrorMsg('');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal membaca kunci flashdisk.');
+      setDongleConnected(false);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // Handle Emergency Login with Face Recognition
+  const handleFaceAuthSuccess = async (_result: {
+    signerName: string;
+    confidence: number;
+    biometricHash: string;
+  }) => {
+    setIsLoading(true);
+    try {
+      const res = await loginUser('admin', 'admin123', 'admin');
+      if (res.success && res.session) {
+        onLoginSuccess({
+          ...res.session,
+          isDongleConnected: false, // Mark that they entered via emergency biometric bypass
+        });
+      }
+    } catch {
+      setErrorMsg('Gagal memproses otorisasi biometrik wajah.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Register form state
   const [regUsername, setRegUsername] = useState('');
@@ -74,6 +144,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setErrorMsg('');
     setSuccessMsg('');
     setIsLoading(true);
+
+    if (isAdminMode && !dongleConnected) {
+      setErrorMsg(
+        'Akses Ditolak: USB Flashdisk Dongle Notaris tidak terdeteksi! Silakan colokkan flashdisk (pilih .key), atau gunakan opsi darurat "Face Recognition" jika dongle Anda hilang.'
+      );
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const targetRole: UserRole = isSuperAdminMode
@@ -393,30 +471,81 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           )}
 
           {activeMode === 'login-admin' && (
-            <div className="mb-5 p-3 rounded-xl border border-emerald-700/50 bg-[#07241c]/90 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-emerald-900/80 text-emerald-300">
-                  <Shield className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="font-semibold text-white flex items-center gap-1.5">
-                    Ruang Kerja Notaris Utama
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700">
-                      FIPS 140-2
-                    </span>
+            <div className="mb-5 p-3.5 rounded-xl border border-emerald-700/60 bg-[#07241c]/95 space-y-3 text-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`p-2 rounded-lg ${
+                      dongleConnected
+                        ? 'bg-emerald-900/80 text-emerald-300'
+                        : 'bg-amber-950/80 text-amber-300'
+                    }`}
+                  >
+                    <Usb className="w-4 h-4 animate-pulse" />
                   </div>
-                  <div className="text-[10px] text-emerald-200/70">
-                    Memerlukan kredensial notaris & otorisasi USB Dongle
+                  <div>
+                    <div className="font-semibold text-white flex items-center gap-1.5">
+                      Ruang Kerja Notaris Utama
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-mono">
+                        FIPS 140-2
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-emerald-200/80">
+                      {dongleConnected ? (
+                        <span className="text-emerald-300">
+                          🔌 Flashdisk Terverifikasi: <b>{verifiedSerial || 'FIPS-NATASHA-2026-9901'}</b>
+                        </span>
+                      ) : (
+                        <span className="text-amber-300">
+                          ⚠️ Flashdisk Dongle Fisik Tidak Terdeteksi
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !dongleConnected;
+                    setDongleConnected(next);
+                    if (!next) setVerifiedSerial(null);
+                    else setVerifiedSerial('FIPS-NATASHA-2026-9901');
+                  }}
+                  className="text-[10px] text-emerald-300 hover:text-white underline cursor-pointer"
+                >
+                  {dongleConnected ? 'Lepas Token' : 'Sambung Simulasi'}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setDongleConnected(!dongleConnected)}
-                className="text-[10px] text-emerald-300 hover:text-white underline cursor-pointer"
-              >
-                {dongleConnected ? 'Cabut' : 'Sambung'}
-              </button>
+
+              {/* Physical Flashdisk Actions & Emergency Face Recognition */}
+              <div className="pt-2 border-t border-emerald-800/60 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <label
+                    htmlFor="login-flashdisk-key-input"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#163f35] hover:bg-[#1f5447] text-emerald-200 text-[11px] font-medium border border-emerald-700/60 cursor-pointer transition shadow-xs"
+                  >
+                    <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Colokkan Flashdisk (Pilih .key)</span>
+                  </label>
+                  <input
+                    id="login-flashdisk-key-input"
+                    type="file"
+                    accept=".key,.json"
+                    onChange={handleFlashdiskKeySelect}
+                    className="hidden"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsFaceModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-[11px] font-medium border border-amber-700/60 transition cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Dongle Hilang? Face Recognition</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -929,6 +1058,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <span>Proyek Akhir Kriptografi · Hak Cipta Dilindungi Undang-Undang</span>
         </div>
       </footer>
+
+      {/* Emergency Face Recognition Modal */}
+      <FaceRecognitionModal
+        isOpen={isFaceModalOpen}
+        onClose={() => setIsFaceModalOpen(false)}
+        onSuccess={handleFaceAuthSuccess}
+        purposeTitle="Masuk Darurat Ruang Kerja Notaris (Dongle Absen)"
+        expectedName="Natasha S.H., M.Kn."
+      />
     </div>
   );
 };

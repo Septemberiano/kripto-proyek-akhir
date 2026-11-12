@@ -10,6 +10,7 @@ import {
   X,
   Lock,
   Server,
+  Usb,
 } from 'lucide-react';
 import type { UserSession } from '../types';
 
@@ -21,6 +22,7 @@ interface HeaderProps {
   isBackendOnline: boolean;
   onRefreshBackend: () => void;
   session: UserSession;
+  onOpenDongleModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,6 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
   isBackendOnline,
   onRefreshBackend,
   session,
+  onOpenDongleModal,
 }) => {
   const [secondsRemaining, setSecondsRemaining] = useState(2850); // ~47 mins
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -115,7 +118,11 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Status pill: Super Admin, Notaris, or Klien */}
         <div
+          onClick={session.role === 'admin' ? onOpenDongleModal : undefined}
+          title={session.role === 'admin' ? 'Klik untuk Manajemen USB Dongle & Kasus Kehilangan' : undefined}
           className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium ${
+            session.role === 'admin' ? 'cursor-pointer hover:ring-1 hover:ring-emerald-400 transition' : ''
+          } ${
             session.role === 'superadmin'
               ? 'bg-[#101f38] text-indigo-200'
               : session.role === 'admin'
@@ -125,18 +132,16 @@ export const Header: React.FC<HeaderProps> = ({
         >
           {session.role === 'superadmin' ? (
             <Server className="w-3.5 h-3.5 text-indigo-400" />
+          ) : session.role === 'admin' ? (
+            <Usb className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
           ) : (
-            <Shield
-              className={`w-3.5 h-3.5 ${
-                session.role === 'admin' ? 'text-emerald-400' : 'text-cyan-300'
-              }`}
-            />
+            <Shield className="w-3.5 h-3.5 text-cyan-300" />
           )}
           <span>
             {session.role === 'superadmin'
               ? `Super Admin: ${session.displayName.split(' ')[0]}`
               : session.role === 'admin'
-              ? `Dongle: ${session.displayName.split(' ')[0]}`
+              ? `USB Dongle: ${session.displayName.split(' ')[0]}`
               : `Portal: ${session.displayName.split(' ')[0]}`}
           </span>
         </div>

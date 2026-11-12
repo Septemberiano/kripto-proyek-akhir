@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Building2,
   FileText,
-  Users,
   Link2,
   Lock,
   Fingerprint,
@@ -15,12 +14,13 @@ import {
   Clock,
   Sparkles,
 } from 'lucide-react';
-import type { AuditLogItem, DocumentItem } from '../../types';
+import type { AuditLogItem, DocumentItem, ClientRequestItem } from '../../types';
 import type { NavTab } from '../Sidebar';
 
 interface OverviewViewProps {
   documents: DocumentItem[];
   auditLogs: AuditLogItem[];
+  clientRequests?: ClientRequestItem[];
   setActiveTab: (tab: NavTab) => void;
   onOpenAddModal: () => void;
   searchQuery: string;
@@ -29,10 +29,12 @@ interface OverviewViewProps {
 export const OverviewView: React.FC<OverviewViewProps> = ({
   documents,
   auditLogs,
+  clientRequests = [],
   setActiveTab,
   onOpenAddModal,
   searchQuery,
 }) => {
+  const pendingRequests = clientRequests.filter((r) => r.status === 'Menunggu Peninjauan');
   const filteredDocuments = documents.filter((doc) =>
     `${doc.title} ${doc.client} ${doc.id} ${doc.algorithm}`
       .toLowerCase()
@@ -91,6 +93,33 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </button>
       </section>
 
+      {/* Pending Requests Alert for Notary */}
+      {pendingRequests.length > 0 && (
+        <section className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 rounded-lg bg-amber-200 text-amber-900 mt-0.5">
+              <Clock className="w-5 h-5 animate-pulse" />
+            </span>
+            <div>
+              <strong className="text-sm font-semibold block text-amber-950">
+                {pendingRequests.length} Permohonan Klien Masuk Menunggu Peninjauan
+              </strong>
+              <p className="text-xs text-amber-800 mt-0.5 max-w-2xl">
+                Warkah terbaru dari {pendingRequests.slice(0, 2).map((r) => r.client_name).join(', ')}
+                {pendingRequests.length > 2 ? ` dan ${pendingRequests.length - 2} lainnya` : ''} telah masuk dan menunggu tanda tangan digital Anda.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveTab('Permohonan Klien')}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-semibold shrink-0 transition cursor-pointer shadow-xs"
+          >
+            <span>Tinjau & Tandatangani</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </section>
+      )}
+
       {/* Metric Cards Grid */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1 */}
@@ -131,21 +160,35 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </p>
         </div>
 
-        {/* Card 3 */}
-        <div className="p-4 rounded-xl bg-[#fbfaf7] border border-[#dfddd6] shadow-xs hover:border-[#b88070] transition">
+        {/* Card 3: Permohonan Klien */}
+        <div
+          onClick={() => setActiveTab('Permohonan Klien')}
+          className="p-4 rounded-xl bg-[#fbfaf7] border border-[#dfddd6] shadow-xs hover:border-[#2d6958] transition cursor-pointer group"
+        >
           <div className="flex items-center justify-between mb-2">
-            <span className="p-2 rounded-lg bg-[#2d6958]/10 text-[#2d6958]">
-              <Users className="w-4 h-4" />
+            <span className="p-2 rounded-lg bg-[#2d6958]/10 text-[#2d6958] group-hover:bg-[#2d6958] group-hover:text-white transition">
+              <Clock className="w-4 h-4" />
             </span>
-            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-              +4 bulan ini
+            <span
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                pendingRequests.length > 0
+                  ? 'text-amber-800 bg-amber-100'
+                  : 'text-emerald-700 bg-emerald-50'
+              }`}
+            >
+              {pendingRequests.length > 0 ? `${pendingRequests.length} warkah baru` : 'Terlayani semua'}
             </span>
           </div>
           <span className="text-[10px] font-bold tracking-wider text-[#69736f] uppercase block">
-            KLIEN TERDAFTAR
+            PERMOHONAN KLIEN
           </span>
-          <div className="font-serif text-2xl font-bold text-[#182b29] mt-0.5">67</div>
-          <p className="text-xs text-[#69736f] mt-1">12 badan usaha · 55 individu</p>
+          <div className="font-serif text-2xl font-bold text-[#182b29] mt-0.5">
+            {clientRequests.length}
+          </div>
+          <p className="text-xs text-[#2d6958] font-medium mt-1 flex items-center gap-1 group-hover:underline">
+            <span>Buka meja kerja permohonan</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </p>
         </div>
 
         {/* Card 4 */}

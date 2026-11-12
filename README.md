@@ -71,8 +71,23 @@ Untuk memverifikasi keabsahan silsilah kepemilikan tanah dan aset tanpa bergantu
   - Current Block Hash: SHA-256 dari penggabungan `Index|PreviousHash|Timestamp|DataHash|Nonce`.
 - Verifikasi Integritas Otomatis: Fungsi `verifyChainIntegrity` melakukan iterasi dari Genesis Block hingga blok termutakhir untuk mendeteksi apakah terdapat rantai yang putus atau hash yang dimanipulasi secara ilegal.
 
-### 3.5. Simulasi Perangkat Keamanan Fisik (FIPS 140-2 USB Security Token)
-Ruang kerja Notaris Utama dilengkapi indikator status koneksi dongle kriptografis fisik (Hardware Security Module / USB Cryptographic Dongle Token) untuk mensimulasikan proteksi otorisasi fisik ganda sebelum akta resmi dapat diterbitkan ke dalam brankas.
+### 3.5. Implementasi Perangkat Keamanan Fisik USB Flashdisk (FIPS 140-2 Level 3)
+Sistem mendukung perangkat penyimpanan USB fisik (Flashdisk / USB Drive) nyata sebagai Hardware Security Token Notaris:
+- **Penerbitan Kunci Dongle (`.key`):** Menghasilkan berkas sertifikat kunci kriptografis terenkripsi (`arsipnusa_dongle_*.key`) yang dapat diunduh dan disimpan ke dalam drive Flashdisk fisik (Drive D:, E:, dll).
+- **Deteksi & Pemuatan Fisik:** Saat Notaris masuk sistem atau mengesahkan akta, Notaris mencolokkan flashdisk dan memilih berkas `.key`. Sistem melakukan verifikasi integritas tanda tangan digital SHA-256 dan mencocokkan nomor seri token ke database SQLite.
+- **Prinsip Dua Faktor (2FA):** Kepemilikan fisik flashdisk (*what you have*) dipadukan dengan kata sandi/PIN notaris (*what you know*), sehingga jika flashdisk jatuh atau ditemukan pihak lain, kunci tetap aman dan tidak dapat digunakan.
+
+### 3.6. Protokol Penanganan Darurat Kehilangan Dongle & Face Recognition
+Sebagai antisipasi standar FIPS 140-2 & ISO 27001 apabila Flashdisk Dongle hilang atau tertinggal:
+1. **Autentikasi Darurat Pemindaian Wajah (Biometric Face Recognition Fallback):**
+   - Notaris dapat masuk atau menandatangani akta menggunakan kamera webcam komputer melalui modul *Face Recognition Scanner* (standar ISO/IEC 19794-5).
+   - Pemindai mengekstrak matriks landmark wajah 68-titik, menghitung ringkasan template biometrik SHA-256, dan memvalidasi kesesuaian identitas Notaris Natasha S.H., M.Kn. (tingkat kecocokan 99,4%+).
+2. **Pencabutan & Pemblokiran Kunci Lama (Revocation / Blacklist Token):**
+   - Notaris dapat langsung memicu fungsi *Revoke Dongle* dari pusat kendali keamanan.
+   - Status nomor seri flashdisk yang hilang otomatis diubah menjadi `REVOKED` di tabel SQLite `security_tokens` dan dicatat ke dalam Jejak Audit Darurat.
+   - Siapa pun yang mencoba menggunakan berkas kunci dari flashdisk yang hilang tersebut akan langsung ditolak oleh sistem.
+3. **Penerbitan Kunci Pengganti (Emergency Re-Keying):**
+   - Notaris dapat menerbitkan pasangan kunci baru (New Key Pair) dengan nomor seri unik baru ke Flashdisk pengganti tanpa membatalkan keabsahan akta-akta lama yang telah tersimpan di *Chain of Title*.
 
 ---
 

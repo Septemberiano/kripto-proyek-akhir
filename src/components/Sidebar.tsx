@@ -28,6 +28,7 @@ export type NavTab =
   | 'Audit Log Global'
   // Notaris (Admin) tabs
   | 'Ikhtisar'
+  | 'Permohonan Klien'
   | 'Aset & Sertifikat'
   | 'Wasiat & Akta'
   | 'Klien'
@@ -54,6 +55,7 @@ interface SidebarProps {
   documentsCount: number;
   requestsCount?: number;
   usersCount?: number;
+  onOpenDongleModal?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -67,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   documentsCount,
   requestsCount = 2,
   usersCount = 5,
+  onOpenDongleModal,
 }) => {
   const isSuperAdmin = session.role === 'superadmin';
   const isAdmin = session.role === 'admin';
@@ -81,6 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Admin (Notaris) Navigation Items
   const adminNavItems: { label: NavTab; icon: React.ReactNode; badge?: string | number }[] = [
     { label: 'Ikhtisar', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { label: 'Permohonan Klien', icon: <Clock className="w-4 h-4" />, badge: requestsCount },
     { label: 'Aset & Sertifikat', icon: <Building2 className="w-4 h-4" /> },
     { label: 'Wasiat & Akta', icon: <FileText className="w-4 h-4" />, badge: documentsCount },
     { label: 'Klien', icon: <Users className="w-4 h-4" />, badge: '67' },
@@ -293,7 +297,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Dongle / Biometric / Root Security Card */}
           <div
-            className={`p-3 rounded-lg border ${
+            onClick={isAdmin ? onOpenDongleModal : undefined}
+            title={isAdmin ? 'Klik untuk Manajemen USB Dongle & Kasus Kehilangan' : undefined}
+            className={`p-3 rounded-lg border transition ${
+              isAdmin ? 'cursor-pointer hover:border-emerald-400 hover:bg-[#1f3d37]' : ''
+            } ${
               isSuperAdmin
                 ? 'border-[#23385d] bg-[#101c33]'
                 : isAdmin
@@ -310,14 +318,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {isSuperAdmin
                     ? 'Akses Root Terproteksi'
                     : isAdmin
-                    ? 'Mode Aman Aktif'
+                    ? 'USB Dongle Notaris'
                     : 'Akses Pribadi Aman'}
                 </span>
               </div>
               {isSuperAdmin ? (
                 <Server className="w-3.5 h-3.5 text-indigo-400" />
               ) : isAdmin ? (
-                <Usb className="w-3.5 h-3.5 text-emerald-400" />
+                <Usb className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
               ) : (
                 <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300" />
               )}
@@ -326,7 +334,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {isSuperAdmin
                 ? 'Kontrol Penuh Sistem & Pengguna'
                 : isAdmin
-                ? 'Dongle terhubung · Sesi terenkripsi AES-256'
+                ? 'FIPS 140-2 Aktif · Klik untuk kelola flashdisk'
                 : 'Biometrik aktif · Data terenkripsi'}
             </p>
             <div className="w-full h-1 bg-black/30 rounded-full overflow-hidden">

@@ -11,11 +11,12 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import type { DocumentItem, UserSession } from '../../../types';
+import type { DocumentItem, UserSession, ClientRequestItem } from '../../../types';
 
 interface ClientOverviewViewProps {
   session: UserSession;
   clientDocuments: DocumentItem[];
+  clientRequests?: ClientRequestItem[];
   onOpenRequestModal: () => void;
   onNavigateTab: (tabName: string) => void;
 }
@@ -23,9 +24,13 @@ interface ClientOverviewViewProps {
 export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
   session,
   clientDocuments,
+  clientRequests = [],
   onOpenRequestModal,
   onNavigateTab,
 }) => {
+  const pendingOrProcessing = clientRequests.filter(
+    (r) => r.status === 'Menunggu Peninjauan' || r.status === 'Sedang Diproses'
+  ).length;
   return (
     <div className="space-y-6">
       {/* Header section */}
@@ -116,20 +121,34 @@ export const ClientOverviewView: React.FC<ClientOverviewViewProps> = ({
           <p className="text-xs text-slate-500 mt-1">3 terverifikasi · 1 menunggu persetujuan</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+        <div
+          onClick={() => onNavigateTab('Permintaan')}
+          className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm hover:border-emerald-500 transition cursor-pointer group"
+        >
           <div className="flex items-center justify-between mb-2">
-            <span className="p-2 rounded-lg bg-amber-50 text-amber-700">
+            <span className="p-2 rounded-lg bg-amber-50 text-amber-700 group-hover:bg-amber-100 transition">
               <Clock className="w-4 h-4" />
             </span>
-            <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
-              Prioritas
+            <span
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                pendingOrProcessing > 0
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-emerald-50 text-emerald-700'
+              }`}
+            >
+              {pendingOrProcessing > 0 ? `${pendingOrProcessing} dalam proses` : 'Semua tuntas'}
             </span>
           </div>
           <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase block">
-            PERLU TINDAKAN ANDA
+            STATUS PERMOHONAN SAYA
           </span>
-          <div className="font-serif text-2xl font-bold text-slate-900 mt-0.5">1</div>
-          <p className="text-xs text-slate-500 mt-1">Tanda tangan digital Surat Wasiat</p>
+          <div className="font-serif text-2xl font-bold text-slate-900 mt-0.5">
+            {clientRequests.length}
+          </div>
+          <p className="text-xs text-[#2d6958] font-medium mt-1 flex items-center gap-1 group-hover:underline">
+            <span>Pantau progres permohonan</span>
+            <ChevronRight className="w-3 h-3" />
+          </p>
         </div>
 
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">

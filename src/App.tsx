@@ -15,6 +15,8 @@ import { AddDocumentModal } from './components/AddDocumentModal';
 import { ClientOverviewView } from './components/views/client/ClientOverviewView';
 import { ClientRequestsView } from './components/views/client/ClientRequestsView';
 import { ClientRequestModal } from './components/client/ClientRequestModal';
+import { NotaryRequestsView } from './components/views/NotaryRequestsView';
+import { DongleManagerModal } from './components/DongleManagerModal';
 
 import type { DocumentItem, AuditLogItem, UserSession, ClientRequestItem, UserRole } from './types';
 import {
@@ -24,6 +26,8 @@ import {
   checkBackendHealth,
   fetchClientRequests,
   fetchUsers,
+  updateClientRequestStatus,
+  signClientRequest,
 } from './services/api';
 import { CheckCircle2, Shield, Server } from 'lucide-react';
 
@@ -54,6 +58,7 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [isDongleModalOpen, setIsDongleModalOpen] = useState(false);
 
   // Data & Backend State
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -153,6 +158,45 @@ export function App() {
     showToast(`Permintaan "${req.title}" berhasil dikirimkan ke meja kerja Notaris.`);
   };
 
+  // Handle Notary Updating Request Status (e.g. Sedang Diproses, Ditolak)
+  const handleUpdateRequestStatus = async (
+    id: string,
+    status: ClientRequestItem['status'],
+    notaryNotes?: string
+  ) => {
+    const updated = await updateClientRequestStatus(id, status, notaryNotes);
+    setClientRequests((prev) => prev.map((r) => (r.id === id ? updated : r)));
+    const logs = await fetchAuditLogs();
+    setAuditLogs(logs);
+    showToast(`Status permohonan berhasil diperbarui menjadi "${status}".`);
+  };
+
+  // Handle Notary Signing Request and Issuing Official Deed
+  const handleSignRequest = async (
+    requestId: string,
+    deedPayload: {
+      title: string;
+      client: string;
+      type: string;
+      value: string;
+      encrypted_content: string;
+      algorithm: string;
+      sha256_hash: string;
+      notary_notes?: string;
+    }
+  ) => {
+    const res = await signClientRequest(requestId, deedPayload);
+    if (res.success) {
+      setDocuments((prev) => [res.document, ...prev]);
+      setClientRequests((prev) => prev.map((r) => (r.id === requestId ? res.request : r)));
+      const logs = await fetchAuditLogs();
+      setAuditLogs(logs);
+      showToast(
+        `Akta resmi "${res.document.title}" (${res.document.id}) berhasil ditandatangani dan disegel ke dalam brankas!`
+      );
+    }
+  };
+
   // Filter documents specific to the logged-in client
   const clientDocuments = useMemo(() => {
     if (!session || !isClient) return documents;
@@ -209,8 +253,9 @@ export function App() {
         onLogout={handleLogout}
         isBackendOnline={isBackendOnline}
         documentsCount={documents.length}
-        requestsCount={clientRequests.length}
+        requestsCount={clientRequests.filter((r) => r.status === 'Menunggu Peninjauan').length || clientRequests.length}
         usersCount={usersCount}
+        onOpenDongleModal={() => setIsDongleModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -229,9 +274,34 @@ export function App() {
           isBackendOnline={isBackendOnline}
           onRefreshBackend={loadData}
           session={session}
+          onOpenDongleModal={() => setIsDongleModalOpen(true)}
         />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {/* Emergency Notice if entered via Biometric Face Recognition */}
+          {isAdmin && !session.isDongleConnected && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-amber-200 text-amber-900 shrink-0">
+                  <Shield className="w-5 h-5 text-amber-900" />
+                </div>
+                <div>
+                  <strong className="text-sm font-semibold block text-amber-950">
+                    Mode Pemulihan Darurat Aktif: Masuk via Face Recognition Notaris
+                  </strong>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    Hardware Token USB Flashdisk fisik tidak terhubung. Jika flashdisk Anda hilang, segera blokir dongle lama dan terbitkan kunci pengganti.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsDongleModalOpen(true)}
+                className="px-3.5 py-2 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-semibold shrink-0 transition cursor-pointer"
+              >
+                Kelola / Blokir Dongle Hilang
+              </button>
+            </div>
+          )}
           {/* ================= 1. SUPER ADMIN VIEWS ================= */}
           {isSuperAdmin && (
             <SuperAdminView
@@ -253,8 +323,19 @@ export function App() {
                 <OverviewView
                   documents={documents}
                   auditLogs={auditLogs}
+                  clientRequests={clientRequests}
                   setActiveTab={setActiveTab}
                   onOpenAddModal={() => setIsAddModalOpen(true)}
+                  searchQuery={searchQuery}
+                />
+              )}
+
+              {activeTab === 'Permohonan Klien' && (
+                <NotaryRequestsView
+                  requests={clientRequests}
+                  onUpdateStatus={handleUpdateRequestStatus}
+                  onSignRequest={handleSignRequest}
+                  onNavigateToDocument={(_docId) => setActiveTab('Wasiat & Akta')}
                   searchQuery={searchQuery}
                 />
               )}
@@ -300,6 +381,7 @@ export function App() {
                 <ClientOverviewView
                   session={session}
                   clientDocuments={clientDocuments}
+                  clientRequests={clientRequests}
                   onOpenRequestModal={() => setIsRequestModalOpen(true)}
                   onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
                 />
@@ -329,6 +411,7 @@ export function App() {
                 <ClientRequestsView
                   requests={clientRequests}
                   onOpenModal={() => setIsRequestModalOpen(true)}
+                  onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
                 />
               )}
 
@@ -388,6 +471,20 @@ export function App() {
         onClose={() => setIsRequestModalOpen(false)}
         clientName={session.displayName}
         onRequestCreated={handleRequestCreated}
+      />
+
+      {/* Hardware USB Dongle & Lost Key Mitigation Modal */}
+      <DongleManagerModal
+        isOpen={isDongleModalOpen}
+        onClose={() => setIsDongleModalOpen(false)}
+        session={session}
+        onTokenStatusChange={(isConnected, serial) => {
+          showToast(
+            isConnected
+              ? `Flashdisk Dongle (${serial || 'Terotorisasi'}) terhubung ke brankas.`
+              : 'Flashdisk Dongle dicabut / dilepaskan dari brankas.'
+          );
+        }}
       />
     </div>
   );

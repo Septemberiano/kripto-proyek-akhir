@@ -7,6 +7,7 @@ import type {
   UserRole,
   UserItem,
   SystemStats,
+  SecurityTokenItem,
 } from '../types';
 import { sha256 } from '../utils/crypto';
 
@@ -136,6 +137,8 @@ const DEFAULT_SEED_USERS = [
     nik: '3171012345670001',
     email: 'notaris@arsipnusa.id',
     phone: '+62 21-555-8900',
+    photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80',
+    face_descriptor: 'SHA256-BIO-NATASHA-DEMO-DESCRIPTOR-9901',
   },
   {
     id: 'usr-client-1',
@@ -290,6 +293,8 @@ export async function loginUser(
         nik: u.nik,
         email: u.email,
         phone: u.phone,
+        photo_url: u.photo_url || '',
+        face_descriptor: u.face_descriptor || '',
       };
       return { success: true, session };
     } else {
@@ -328,6 +333,8 @@ export async function loginUser(
     nik: matchedUser.nik,
     email: matchedUser.email,
     phone: matchedUser.phone,
+    photo_url: matchedUser.photo_url || '',
+    face_descriptor: matchedUser.face_descriptor || '',
   };
 
   return { success: true, session };
@@ -517,6 +524,150 @@ export async function createClientRequest(
   return offlineReq;
 }
 
+export interface SignRequestPayload {
+  title: string;
+  client: string;
+  type: string;
+  value: string;
+  encrypted_content: string;
+  algorithm: string;
+  sha256_hash: string;
+  notary_notes?: string;
+}
+
+export async function updateClientRequestStatus(
+  id: string,
+  status: ClientRequestItem['status'],
+  notary_notes?: string
+): Promise<ClientRequestItem> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/requests/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, notary_notes }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.request) {
+        const current = getLocalRequests();
+        const updated = current.map((r) => (r.id === id ? data.request : r));
+        saveLocalRequests(updated);
+        return data.request;
+      }
+    }
+  } catch {}
+
+  const current = getLocalRequests();
+  const found = current.find((r) => r.id === id);
+  const updatedItem: ClientRequestItem = found
+    ? { ...found, status, notary_notes: notary_notes !== undefined ? notary_notes : found.notary_notes }
+    : {
+        id,
+        client_name: 'Klien',
+        title: 'Permintaan',
+        category: 'Umum',
+        notes: '',
+        status,
+        notary_notes,
+        created_at: new Date().toISOString(),
+      };
+
+  const updatedList = current.map((r) => (r.id === id ? updatedItem : r));
+  saveLocalRequests(updatedList);
+  return updatedItem;
+}
+
+export async function signClientRequest(
+  id: string,
+  payload: SignRequestPayload
+): Promise<{ success: boolean; document: DocumentItem; request: ClientRequestItem }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(`${API_BASE_URL}/requests/${id}/sign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json();
+      // Update local caches
+      const currentReqs = getLocalRequests();
+      const updatedReqs = currentReqs.map((r) => (r.id === id ? data.request : r));
+      saveLocalRequests(updatedReqs);
+
+      const currentDocs = getLocalDocs();
+      saveLocalDocs([data.document, ...currentDocs]);
+
+      return data;
+    }
+  } catch {}
+
+  // Fallback offline
+  const docId = `AKT-${Date.now().toString().slice(-6)}`;
+  const now = new Date().toISOString();
+  const offlineDoc: DocumentItem = {
+    id: docId,
+    title: payload.title,
+    client: payload.client,
+    type: payload.type,
+    value: payload.value,
+    status: 'Terverifikasi',
+    encrypted_content: payload.encrypted_content,
+    algorithm: payload.algorithm,
+    sha256_hash: payload.sha256_hash,
+    created_at: now,
+  };
+
+  const currentDocs = getLocalDocs();
+  saveLocalDocs([offlineDoc, ...currentDocs]);
+
+  const currentReqs = getLocalRequests();
+  const foundReq = currentReqs.find((r) => r.id === id);
+  const updatedReq: ClientRequestItem = foundReq
+    ? {
+        ...foundReq,
+        status: 'Selesai & Tersegel',
+        notary_notes: payload.notary_notes,
+        document_id: docId,
+      }
+    : {
+        id,
+        client_name: payload.client,
+        title: payload.title,
+        category: payload.type,
+        notes: '',
+        status: 'Selesai & Tersegel',
+        notary_notes: payload.notary_notes,
+        document_id: docId,
+        created_at: now,
+      };
+
+  saveLocalRequests(currentReqs.map((r) => (r.id === id ? updatedReq : r)));
+
+  // Add audit log
+  const newLog: AuditLogItem = {
+    id: `log-${Date.now()}`,
+    action: 'Pengesahan & Tanda Tangan Akta',
+    detail: `${payload.title} · ${payload.client}`,
+    tone: 'green',
+    timestamp: 'Baru saja',
+    block_hash: payload.sha256_hash,
+  };
+  const logs = getLocalLogs();
+  saveLocalLogs([newLog, ...logs]);
+
+  return { success: true, document: offlineDoc, request: updatedReq };
+}
+
 // Audit Logs
 export async function fetchAuditLogs(): Promise<AuditLogItem[]> {
   try {
@@ -560,6 +711,8 @@ export async function fetchUsers(): Promise<UserItem[]> {
     nik: u.nik,
     email: u.email,
     phone: u.phone,
+    photo_url: u.photo_url || '',
+    face_descriptor: u.face_descriptor || '',
     created_at: u.created_at || new Date().toISOString(),
   }));
 }
@@ -602,6 +755,8 @@ export async function createUserByAdmin(
       nik: payload.nik?.trim() || '',
       email: payload.email?.trim() || '',
       phone: payload.phone?.trim() || '',
+      photo_url: payload.photo_url || '',
+      face_descriptor: payload.face_descriptor || '',
       password_hash: await sha256(payload.password),
       created_at: new Date().toISOString(),
     };
@@ -640,6 +795,8 @@ export async function updateUser(
         ...payload,
         name: payload.name || locals[idx].name,
         role: payload.role || locals[idx].role,
+        photo_url: payload.photo_url !== undefined ? payload.photo_url : locals[idx].photo_url,
+        face_descriptor: payload.face_descriptor !== undefined ? payload.face_descriptor : locals[idx].face_descriptor,
       };
       locals[idx] = updated;
       saveLocalUsers(locals);
@@ -707,5 +864,89 @@ export async function fetchSystemStats(): Promise<SystemStats> {
     databaseSizeKb: 40,
     databaseStatus: 'Penyimpanan Lokal Aktif',
     timestamp: new Date().toISOString(),
+  };
+}
+
+// Security Tokens (USB Dongle) API
+export async function fetchSecurityTokens(username?: string): Promise<SecurityTokenItem[]> {
+  try {
+    const url = username
+      ? `${API_BASE_URL}/tokens?username=${encodeURIComponent(username)}`
+      : `${API_BASE_URL}/tokens`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  // Fallback default
+  return [
+    {
+      id: 'tok-notary-01',
+      owner_username: 'admin',
+      serial_number: 'FIPS-NATASHA-2026-9901',
+      token_label: 'Flashdisk Dongle Notaris Natasha S.H.',
+      public_key_hash: 'a78f24b0789d2c20a67e9f3b1456ca01ef2b8901cb4d8e90a5b6c7d8e9f01234',
+      status: 'ACTIVE',
+      created_at: new Date().toISOString(),
+    },
+  ];
+}
+
+export async function issueSecurityToken(payload: {
+  owner_username: string;
+  serial_number: string;
+  token_label: string;
+  public_key_hash: string;
+}): Promise<SecurityTokenItem> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      return data.token;
+    }
+  } catch {}
+
+  return {
+    id: `tok-${Date.now()}`,
+    ...payload,
+    status: 'ACTIVE',
+    created_at: new Date().toISOString(),
+  };
+}
+
+export async function revokeSecurityToken(
+  serial_number: string,
+  reason: string
+): Promise<{ success: boolean; message: string; token?: SecurityTokenItem }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/tokens/revoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serial_number, reason }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  return {
+    success: true,
+    message: `Token ${serial_number} berhasil DIBLOKIR / DICABUT dari sistem (Mode Offline).`,
   };
 }

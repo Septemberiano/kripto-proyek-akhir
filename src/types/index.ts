@@ -85,6 +85,8 @@ export interface UserSession {
   nik?: string;
   email?: string;
   phone?: string;
+  photo_url?: string;
+  face_descriptor?: string;
 }
 
 export interface UserItem {
@@ -95,6 +97,8 @@ export interface UserItem {
   nik?: string;
   email?: string;
   phone?: string;
+  photo_url?: string;
+  face_descriptor?: string;
   created_at: string;
 }
 
@@ -126,6 +130,8 @@ export interface RegisterPayload {
   nik?: string;
   email?: string;
   phone?: string;
+  photo_url?: string;
+  face_descriptor?: string;
 }
 
 export interface ClientRequestItem {
@@ -134,6 +140,20 @@ export interface ClientRequestItem {
   title: string;
   category: string;
   notes: string;
-  status: 'Menunggu Peninjauan' | 'Sedang Diproses' | 'Selesai & Tersegel';
+  status: 'Menunggu Peninjauan' | 'Sedang Diproses' | 'Selesai & Tersegel' | 'Ditolak';
   created_at: string;
+  notary_notes?: string;
+  document_id?: string;
+}
+
+export interface SecurityTokenItem {
+  id: string;
+  owner_username: string;
+  serial_number: string;
+  token_label: string;
+  public_key_hash: string;
+  status: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+  created_at: string;
+  revoked_at?: string | null;
+  revoked_reason?: string | null;
 }

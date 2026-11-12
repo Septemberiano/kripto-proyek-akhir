@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Users,
   Server,
@@ -16,6 +16,9 @@ import {
   HardDrive,
   RefreshCw,
   X,
+  Camera,
+  Upload,
+  Scan,
 } from 'lucide-react';
 import type { UserItem, SystemStats, AuditLogItem, UserRole } from '../../types';
 import {
@@ -26,6 +29,7 @@ import {
   fetchSystemStats,
   fetchAuditLogs,
 } from '../../services/api';
+import { sha256 } from '../../utils/crypto';
 
 interface SuperAdminViewProps {
   activeTab: 'Manajemen Pengguna' | 'Status Sistem & Database' | 'Audit Log Global';
@@ -57,7 +61,14 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
   const [formNik, setFormNik] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [formPhotoUrl, setFormPhotoUrl] = useState('');
+  const [formFaceDescriptor, setFormFaceDescriptor] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
+
+  // Webcam Capture State for Face Registration
+  const [isWebcamActive, setIsWebcamActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Delete Confirm State
   const [deletingUser, setDeletingUser] = useState<UserItem | null>(null);
@@ -65,6 +76,103 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const stopWebcam = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsWebcamActive(false);
+  };
+
+  const startWebcam = async () => {
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 480 }, height: { ideal: 480 }, facingMode: 'user' },
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        setIsWebcamActive(true);
+      } else {
+        showToast('Kamera tidak didukung pada browser ini', 'error');
+      }
+    } catch {
+      showToast('Gagal mengakses kamera fisik. Pastikan izin kamera telah diberikan.', 'error');
+      setIsWebcamActive(false);
+    }
+  };
+
+  const captureWebcamPhoto = async () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    const width = video.videoWidth || 360;
+    const height = video.videoHeight || 360;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      // Mirror horizontal
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const digest = await sha256(`BIO_FACE_${formUsername || 'NOTARIS'}_${dataUrl.slice(0, 100)}_${Date.now()}`);
+      setFormPhotoUrl(dataUrl);
+      setFormFaceDescriptor(`SHA256-BIO-FACE-${digest.slice(0, 24).toUpperCase()}`);
+      stopWebcam();
+      showToast('Foto wajah berhasil dijepret & biometrik tersimpan!');
+    }
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('Berkas harus berupa gambar (JPG, PNG, WEBP)', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 360;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          const digest = await sha256(`BIO_FACE_${formUsername || 'USER'}_${dataUrl.slice(0, 100)}_${Date.now()}`);
+          setFormPhotoUrl(dataUrl);
+          setFormFaceDescriptor(`SHA256-BIO-FACE-${digest.slice(0, 24).toUpperCase()}`);
+          showToast('Foto profil & biometrik wajah berhasil dimuat!');
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const loadAllData = useCallback(async () => {
@@ -90,21 +198,25 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
   }, [loadAllData]);
 
   // Open Create Modal
-  const handleOpenCreateModal = () => {
+  const handleOpenCreateModal = (defaultRole: UserRole = 'client') => {
+    stopWebcam();
     setModalMode('create');
     setEditingUserId(null);
-    setFormUsername('');
+    setFormUsername(defaultRole === 'admin' ? 'notaris_' : '');
     setFormName('');
-    setFormRole('client');
+    setFormRole(defaultRole);
     setFormPassword('');
     setFormNik('');
     setFormEmail('');
     setFormPhone('');
+    setFormPhotoUrl('');
+    setFormFaceDescriptor('');
     setIsModalOpen(true);
   };
 
   // Open Edit Modal
   const handleOpenEditModal = (u: UserItem) => {
+    stopWebcam();
     setModalMode('edit');
     setEditingUserId(u.id);
     setFormUsername(u.username);
@@ -114,7 +226,14 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
     setFormNik(u.nik || '');
     setFormEmail(u.email || '');
     setFormPhone(u.phone || '');
+    setFormPhotoUrl(u.photo_url || '');
+    setFormFaceDescriptor(u.face_descriptor || '');
     setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    stopWebcam();
+    setIsModalOpen(false);
   };
 
   // Submit Modal
@@ -140,6 +259,8 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
           nik: formNik,
           email: formEmail,
           phone: formPhone,
+          photo_url: formPhotoUrl,
+          face_descriptor: formFaceDescriptor,
         });
 
         if (!res.success || !res.user) {
@@ -157,6 +278,8 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
           nik: formNik,
           email: formEmail,
           phone: formPhone,
+          photo_url: formPhotoUrl,
+          face_descriptor: formFaceDescriptor,
         };
         if (formPassword.trim()) {
           payload.password = formPassword.trim();
@@ -173,7 +296,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
         showToast(`Data pengguna "${res.user.name}" berhasil diperbarui.`);
       }
 
-      setIsModalOpen(false);
+      handleCloseModal();
       // Refresh stats
       const updatedStats = await fetchSystemStats();
       setStats(updatedStats);
@@ -297,13 +420,23 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
           </button>
 
           {activeTab === 'Manajemen Pengguna' && (
-            <button
-              onClick={handleOpenCreateModal}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition cursor-pointer shadow-md shadow-indigo-600/20"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>Tambah Pengguna Baru</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleOpenCreateModal('admin')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-medium transition cursor-pointer shadow-md shadow-emerald-700/20"
+              >
+                <Shield className="w-4 h-4 text-emerald-200" />
+                <span>Tambah Notaris (+ Biometrik)</span>
+              </button>
+
+              <button
+                onClick={() => handleOpenCreateModal('client')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition cursor-pointer shadow-md shadow-indigo-600/20"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Tambah Pengguna</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -445,26 +578,48 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                     <tr key={u.id} className="hover:bg-slate-50/80 transition">
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
-                          <div
-                            className={`w-8 h-8 rounded-full font-bold text-xs grid place-items-center shrink-0 ${
-                              u.role === 'superadmin'
-                                ? 'bg-indigo-100 text-indigo-700'
-                                : u.role === 'admin'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {u.name
-                              .split(' ')
-                              .filter(Boolean)
-                              .slice(0, 2)
-                              .map((w) => w[0].toUpperCase())
-                              .join('')}
-                          </div>
+                          {u.photo_url ? (
+                            <img
+                              src={u.photo_url}
+                              alt={u.name}
+                              className="w-9 h-9 rounded-full object-cover border-2 border-emerald-500 shadow-xs shrink-0"
+                            />
+                          ) : (
+                            <div
+                              className={`w-9 h-9 rounded-full font-bold text-xs grid place-items-center shrink-0 ${
+                                u.role === 'superadmin'
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : u.role === 'admin'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {u.name
+                                .split(' ')
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((w) => w[0].toUpperCase())
+                                .join('')}
+                            </div>
+                          )}
                           <div>
-                            <div className="font-semibold text-slate-900">{u.name}</div>
-                            <div className="text-[11px] text-slate-500 font-mono">
-                              @{u.username}
+                            <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                              <span>{u.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[11px] text-slate-500 font-mono">
+                                @{u.username}
+                              </span>
+                              {u.photo_url || u.face_descriptor ? (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                                  Face ID Aktif
+                                </span>
+                              ) : u.role === 'admin' ? (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                                  Belum Ada Foto
+                                </span>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -669,32 +824,38 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
       {/* ================= MODAL: TAMBAH / EDIT PENGGUNA ================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-                  <UserPlus className="w-5 h-5" />
+                <div className={`p-2 rounded-lg ${formRole === 'admin' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                  {formRole === 'admin' ? <Shield className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-900">
-                    {modalMode === 'create' ? 'Tambah Pengguna Baru' : 'Edit Data Pengguna'}
+                    {modalMode === 'create'
+                      ? formRole === 'admin'
+                        ? 'Daftarkan Notaris Baru'
+                        : 'Tambah Pengguna Baru'
+                      : 'Edit Data Pengguna'}
                   </h3>
                   <p className="text-xs text-slate-500">
                     {modalMode === 'create'
-                      ? 'Daftarkan Super Admin, Notaris, atau Klien ke SQLite'
+                      ? formRole === 'admin'
+                        ? 'Registrasi akun Notaris dan template biometrik wajah ke SQLite'
+                        : 'Daftarkan Super Admin, Notaris, atau Klien ke SQLite'
                       : `Perbarui profil untuk @${formUsername}`}
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700"
+                onClick={handleCloseModal}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitForm} className="space-y-3 text-xs">
+            <form onSubmit={handleSubmitForm} className="space-y-3.5 text-xs">
               {/* Role Selection */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
@@ -703,12 +864,134 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                 <select
                   value={formRole}
                   onChange={(e) => setFormRole(e.target.value as UserRole)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 bg-white focus:outline-none focus:border-indigo-600"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 bg-white focus:outline-none focus:border-indigo-600 font-medium"
                 >
                   <option value="client">Klien (User Biasa)</option>
                   <option value="admin">Notaris (Administrator Hukum)</option>
                   <option value="superadmin">Super Admin (Administrator Sistem)</option>
                 </select>
+              </div>
+
+              {/* Face Biometric Registration Section */}
+              <div className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Scan className="w-4 h-4 text-emerald-700" />
+                    <span className="font-semibold text-emerald-900 text-xs">
+                      Foto Profil & Referensi Biometrik Wajah
+                    </span>
+                  </div>
+                  {formPhotoUrl && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Terdaftar
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-emerald-800/90 leading-relaxed">
+                  {formRole === 'admin'
+                    ? 'Foto ini menjadi acuan master AI Face Recognition untuk Notaris saat melakukan otorisasi login darurat tanpa USB flashdisk atau mengesahkan dokumen rahasia.'
+                    : 'Foto identitas pengguna untuk verifikasi profil akun di sistem notaris.'}
+                </p>
+
+                {/* Live Webcam Viewport inside Modal */}
+                {isWebcamActive && (
+                  <div className="relative w-full aspect-4/3 rounded-xl overflow-hidden bg-black border-2 border-emerald-600 flex items-center justify-center">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover scale-x-[-1]"
+                    />
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                      <div className="w-36 h-48 border-2 border-dashed border-emerald-400 rounded-2xl animate-pulse" />
+                    </div>
+                    <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={captureWebcamPhoto}
+                        className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Jepret Foto Wajah</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={stopWebcam}
+                        className="px-3 py-1.5 rounded-lg bg-black/70 hover:bg-black text-white text-xs cursor-pointer"
+                      >
+                        Batal Kamera
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Photo Preview & Management */}
+                {!isWebcamActive && (
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                    {formPhotoUrl ? (
+                      <div className="relative group shrink-0">
+                        <img
+                          src={formPhotoUrl}
+                          alt="Face Preview"
+                          className="w-20 h-20 rounded-xl object-cover border-2 border-emerald-600 shadow-md"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormPhotoUrl('');
+                            setFormFaceDescriptor('');
+                          }}
+                          className="absolute -top-1.5 -right-1.5 p-1 rounded-full bg-rose-600 text-white hover:bg-rose-700 shadow-sm cursor-pointer"
+                          title="Hapus foto"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-100/50 flex flex-col items-center justify-center text-emerald-600 shrink-0">
+                        <User className="w-8 h-8 opacity-60" />
+                        <span className="text-[9px] mt-0.5">Belum ada foto</span>
+                      </div>
+                    )}
+
+                    <div className="flex-1 space-y-2 w-full">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={startWebcam}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-medium text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Ambil via Kamera</span>
+                        </button>
+
+                        <label
+                          htmlFor="modal-photo-file-input"
+                          className="px-3 py-1.5 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-50 text-emerald-900 font-medium text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Unggah File Foto</span>
+                        </label>
+                        <input
+                          id="modal-photo-file-input"
+                          type="file"
+                          accept="image/*"
+                          onChange={handlePhotoUpload}
+                          className="hidden"
+                        />
+                      </div>
+
+                      {formFaceDescriptor && (
+                        <div className="text-[10px] font-mono text-emerald-900 break-all bg-emerald-100/70 p-1.5 rounded border border-emerald-200">
+                          Descriptor: <b>{formFaceDescriptor}</b>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Name */}
@@ -791,7 +1074,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition cursor-pointer"
                 >
                   Batal

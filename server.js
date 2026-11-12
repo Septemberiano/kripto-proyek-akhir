@@ -62,9 +62,50 @@ db.exec(`
     category TEXT NOT NULL,
     notes TEXT,
     status TEXT DEFAULT 'Menunggu Peninjauan',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    notary_notes TEXT,
+    document_id TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS security_tokens (
+    id TEXT PRIMARY KEY,
+    owner_username TEXT NOT NULL,
+    serial_number TEXT UNIQUE NOT NULL,
+    token_label TEXT NOT NULL,
+    public_key_hash TEXT NOT NULL,
+    status TEXT DEFAULT 'ACTIVE',
+    created_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_reason TEXT
   );
 `);
+
+// Add columns if table already existed without them
+try { db.exec(`ALTER TABLE client_requests ADD COLUMN notary_notes TEXT`); } catch {}
+try { db.exec(`ALTER TABLE client_requests ADD COLUMN document_id TEXT`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN photo_url TEXT`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN face_descriptor TEXT`); } catch {}
+
+// Seed default security token for admin if empty
+try {
+  const tokenCountStmt = db.prepare('SELECT COUNT(*) as count FROM security_tokens');
+  const tokenRow = tokenCountStmt.get();
+  if (tokenRow.count === 0) {
+    const insertTok = db.prepare(`
+      INSERT INTO security_tokens (id, owner_username, serial_number, token_label, public_key_hash, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertTok.run(
+      'tok-notary-01',
+      'admin',
+      'FIPS-NATASHA-2026-9901',
+      'Flashdisk Dongle Notaris Natasha S.H.',
+      'a78f24b0789d2c20a67e9f3b1456ca01ef2b8901cb4d8e90a5b6c7d8e9f01234',
+      'ACTIVE',
+      new Date().toISOString()
+    );
+  }
+} catch {}
 
 // Seed default users if empty
 const userCountStmt = db.prepare('SELECT COUNT(*) as count FROM users');
@@ -266,7 +307,7 @@ app.get('/api/health', (req, res) => {
 // GET /api/users
 app.get('/api/users', (req, res) => {
   try {
-    const stmt = db.prepare('SELECT id, username, role, name, nik, email, phone, created_at FROM users ORDER BY created_at DESC');
+    const stmt = db.prepare('SELECT id, username, role, name, nik, email, phone, photo_url, face_descriptor, created_at FROM users ORDER BY created_at DESC');
     const users = stmt.all();
     res.json(users);
   } catch (err) {
@@ -277,7 +318,18 @@ app.get('/api/users', (req, res) => {
 // POST /api/users (Super Admin create user)
 app.post('/api/users', (req, res) => {
   try {
-    const { username, password, password_hash, role = 'client', name, nik = '', email = '', phone = '' } = req.body;
+    const {
+      username,
+      password,
+      password_hash,
+      role = 'client',
+      name,
+      nik = '',
+      email = '',
+      phone = '',
+      photo_url = '',
+      face_descriptor = ''
+    } = req.body;
 
     if (!username || (!password && !password_hash) || !name) {
       return res.status(400).json({ error: 'Username, kata sandi, dan nama lengkap wajib diisi.' });
@@ -294,11 +346,32 @@ app.post('/api/users', (req, res) => {
     const now = new Date().toISOString();
 
     const insertStmt = db.prepare(`
-      INSERT INTO users (id, username, password_hash, role, name, nik, email, phone, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (id, username, password_hash, role, name, nik, email, phone, photo_url, face_descriptor, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    insertStmt.run(id, cleanUsername, finalHash, role, name.trim(), nik.trim(), email.trim(), phone.trim(), now);
+    insertStmt.run(
+      id,
+      cleanUsername,
+      finalHash,
+      role,
+      name.trim(),
+      nik.trim(),
+      email.trim(),
+      phone.trim(),
+      photo_url || '',
+      face_descriptor || '',
+      now
+    );
+
+    // Audit log
+    try {
+      const insertLog = db.prepare(`
+        INSERT INTO audit_logs (id, action, detail, tone, timestamp, block_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insertLog.run(`log-${Date.now()}`, `Pendaftaran Pengguna Baru (${role.toUpperCase()})`, `${name} (@${cleanUsername})`, 'green', now, '');
+    } catch {}
 
     res.status(201).json({
       id,
@@ -308,6 +381,8 @@ app.post('/api/users', (req, res) => {
       nik: nik.trim(),
       email: email.trim(),
       phone: phone.trim(),
+      photo_url: photo_url || '',
+      face_descriptor: face_descriptor || '',
       created_at: now
     });
   } catch (err) {
@@ -319,29 +394,32 @@ app.post('/api/users', (req, res) => {
 app.put('/api/users/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const { name, role, nik = '', email = '', phone = '', password } = req.body;
+    const { name, role, nik = '', email = '', phone = '', password, photo_url, face_descriptor } = req.body;
 
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     if (!user) {
       return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
     }
 
+    const finalPhoto = photo_url !== undefined ? photo_url : (user.photo_url || '');
+    const finalDesc = face_descriptor !== undefined ? face_descriptor : (user.face_descriptor || '');
+
     if (password && password.trim()) {
       const newHash = crypto.createHash('sha256').update(password.trim()).digest('hex');
       db.prepare(`
         UPDATE users
-        SET name = ?, role = ?, nik = ?, email = ?, phone = ?, password_hash = ?
+        SET name = ?, role = ?, nik = ?, email = ?, phone = ?, password_hash = ?, photo_url = ?, face_descriptor = ?
         WHERE id = ?
-      `).run(name || user.name, role || user.role, nik, email, phone, newHash, id);
+      `).run(name || user.name, role || user.role, nik, email, phone, newHash, finalPhoto, finalDesc, id);
     } else {
       db.prepare(`
         UPDATE users
-        SET name = ?, role = ?, nik = ?, email = ?, phone = ?
+        SET name = ?, role = ?, nik = ?, email = ?, phone = ?, photo_url = ?, face_descriptor = ?
         WHERE id = ?
-      `).run(name || user.name, role || user.role, nik, email, phone, id);
+      `).run(name || user.name, role || user.role, nik, email, phone, finalPhoto, finalDesc, id);
     }
 
-    const updated = db.prepare('SELECT id, username, role, name, nik, email, phone, created_at FROM users WHERE id = ?').get(id);
+    const updated = db.prepare('SELECT id, username, role, name, nik, email, phone, photo_url, face_descriptor, created_at FROM users WHERE id = ?').get(id);
     res.json({ success: true, user: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -489,7 +567,9 @@ app.post('/api/users/login', (req, res) => {
         name: user.name,
         nik: user.nik,
         email: user.email,
-        phone: user.phone
+        phone: user.phone,
+        photo_url: user.photo_url || '',
+        face_descriptor: user.face_descriptor || ''
       }
     });
   } catch (err) {
@@ -609,7 +689,128 @@ app.post('/api/requests', (req, res) => {
     `);
     stmt.run(id, client_name, title, category, notes, 'Menunggu Peninjauan', now);
 
+    // Audit log
+    try {
+      const insertLog = db.prepare(`
+        INSERT INTO audit_logs (id, action, detail, tone, timestamp, block_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insertLog.run(`log-${Date.now()}`, 'Permohonan Layanan Masuk', `${title} · ${client_name}`, 'amber', now, '');
+    } catch {}
+
     res.status(201).json({ id, client_name, title, category, notes, status: 'Menunggu Peninjauan', created_at: now });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/requests/:id (Update status and/or notary notes)
+app.put('/api/requests/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notary_notes } = req.body;
+
+    const existing = db.prepare('SELECT * FROM client_requests WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Permintaan tidak ditemukan.' });
+    }
+
+    const newStatus = status || existing.status;
+    const newNotes = notary_notes !== undefined ? notary_notes : (existing.notary_notes || '');
+
+    db.prepare(`
+      UPDATE client_requests
+      SET status = ?, notary_notes = ?
+      WHERE id = ?
+    `).run(newStatus, newNotes, id);
+
+    const now = new Date().toISOString();
+    try {
+      let tone = 'blue';
+      if (newStatus === 'Selesai & Tersegel') tone = 'green';
+      if (newStatus === 'Ditolak') tone = 'wine';
+
+      const insertLog = db.prepare(`
+        INSERT INTO audit_logs (id, action, detail, tone, timestamp, block_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insertLog.run(`log-${Date.now()}`, `Status Permohonan: ${newStatus}`, `${existing.title} · ${existing.client_name}`, tone, now, '');
+    } catch {}
+
+    const updated = db.prepare('SELECT * FROM client_requests WHERE id = ?').get(id);
+    res.json({ success: true, request: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/requests/:id/sign (Notary signs request & issues official verified deed)
+app.post('/api/requests/:id/sign', (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      client,
+      type = 'Akta Notaris',
+      value = 'Rahasia',
+      encrypted_content,
+      algorithm = 'AES-256-GCM',
+      sha256_hash,
+      notary_notes = 'Telah diverifikasi dan ditandatangani secara digital oleh Notaris Natasha S.H., M.Kn.'
+    } = req.body;
+
+    const request = db.prepare('SELECT * FROM client_requests WHERE id = ?').get(id);
+    if (!request) {
+      return res.status(404).json({ error: 'Permintaan tidak ditemukan.' });
+    }
+
+    const docId = `AKT-${Date.now().toString().slice(-6)}`;
+    const now = new Date().toISOString();
+    const finalHash = sha256_hash || crypto.createHash('sha256').update(encrypted_content || id).digest('hex');
+
+    // 1. Insert official deed into documents table
+    const insertDoc = db.prepare(`
+      INSERT INTO documents (id, title, client, type, value, status, encrypted_content, algorithm, sha256_hash, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertDoc.run(
+      docId,
+      title || request.title,
+      client || request.client_name,
+      type,
+      value,
+      'Terverifikasi',
+      encrypted_content || 'U2FsdGVkX1+NotarizedEncryptedDeed==',
+      algorithm,
+      finalHash,
+      now
+    );
+
+    // 2. Update client request status to 'Selesai & Tersegel'
+    db.prepare(`
+      UPDATE client_requests
+      SET status = 'Selesai & Tersegel', notary_notes = ?, document_id = ?
+      WHERE id = ?
+    `).run(notary_notes, docId, id);
+
+    // 3. Insert audit log
+    try {
+      const insertLog = db.prepare(`
+        INSERT INTO audit_logs (id, action, detail, tone, timestamp, block_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insertLog.run(`log-${Date.now()}`, 'Pengesahan & Tanda Tangan Akta', `${title || request.title} · ${client || request.client_name}`, 'green', now, finalHash);
+    } catch {}
+
+    const updatedDoc = db.prepare('SELECT * FROM documents WHERE id = ?').get(docId);
+    const updatedReq = db.prepare('SELECT * FROM client_requests WHERE id = ?').get(id);
+
+    res.status(201).json({
+      success: true,
+      document: updatedDoc,
+      request: updatedReq,
+      message: 'Akta resmi berhasil ditandatangani dan disegel ke dalam brankas.'
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -640,6 +841,99 @@ app.post('/api/audit-logs', (req, res) => {
     stmt.run(id, action, detail, tone, timestamp, block_hash);
 
     res.status(201).json({ id, action, detail, tone, timestamp, block_hash });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= SECURITY TOKEN (USB DONGLE) ENDPOINTS =================
+
+// GET /api/tokens
+app.get('/api/tokens', (req, res) => {
+  try {
+    const { username } = req.query;
+    let tokens;
+    if (username) {
+      const stmt = db.prepare('SELECT * FROM security_tokens WHERE owner_username = ? ORDER BY created_at DESC');
+      tokens = stmt.all(username);
+    } else {
+      const stmt = db.prepare('SELECT * FROM security_tokens ORDER BY created_at DESC');
+      tokens = stmt.all();
+    }
+    res.json(tokens);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/tokens (Issue new token)
+app.post('/api/tokens', (req, res) => {
+  try {
+    const { owner_username, serial_number, token_label, public_key_hash } = req.body;
+    if (!owner_username || !serial_number) {
+      return res.status(400).json({ error: 'Username dan serial number wajib diisi.' });
+    }
+
+    const id = `tok-${Date.now()}`;
+    const now = new Date().toISOString();
+
+    const stmt = db.prepare(`
+      INSERT INTO security_tokens (id, owner_username, serial_number, token_label, public_key_hash, status, created_at)
+      VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)
+    `);
+    stmt.run(id, owner_username, serial_number, token_label || 'Flashdisk USB Token', public_key_hash || '', now);
+
+    // Audit log
+    try {
+      const insertLog = db.prepare(`
+        INSERT INTO audit_logs (id, action, detail, tone, timestamp, block_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insertLog.run(`log-${Date.now()}`, 'Penerbitan Token USB Dongle Baru', `${token_label || 'Dongle'} (${serial_number}) · ${owner_username}`, 'green', now, public_key_hash || '');
+    } catch {}
+
+    const created = db.prepare('SELECT * FROM security_tokens WHERE id = ?').get(id);
+    res.status(201).json({ success: true, token: created });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/tokens/revoke (Revoke lost or compromised token)
+app.post('/api/tokens/revoke', (req, res) => {
+  try {
+    const { serial_number, reason = 'Dongle fisik dilaporkan hilang / dicuri' } = req.body;
+    if (!serial_number) {
+      return res.status(400).json({ error: 'Serial number token wajib diisi.' });
+    }
+
+    const token = db.prepare('SELECT * FROM security_tokens WHERE serial_number = ?').get(serial_number);
+    if (!token) {
+      return res.status(404).json({ error: 'Token dengan serial tersebut tidak ditemukan.' });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE security_tokens
+      SET status = 'REVOKED', revoked_at = ?, revoked_reason = ?
+      WHERE serial_number = ?
+    `).run(now, reason, serial_number);
+
+    // Emergency Audit log
+    try {
+      const insertLog = db.prepare(`
+        INSERT INTO audit_logs (id, action, detail, tone, timestamp, block_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insertLog.run(`log-${Date.now()}`, 'PENCABUTAN DARURAT TOKEN DONGLE', `Token ${serial_number} DIBLOKIR: ${reason}`, 'wine', now, token.public_key_hash);
+    } catch {}
+
+    const updated = db.prepare('SELECT * FROM security_tokens WHERE serial_number = ?').get(serial_number);
+    res.json({
+      success: true,
+      message: `Token ${serial_number} berhasil DIBLOKIR / DICABUT dari sistem.`,
+      token: updated
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
