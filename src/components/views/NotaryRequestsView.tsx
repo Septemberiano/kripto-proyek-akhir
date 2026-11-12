@@ -38,6 +38,9 @@ interface NotaryRequestsViewProps {
   ) => Promise<void>;
   onNavigateToDocument?: (docId: string) => void;
   searchQuery: string;
+  notaryName?: string;
+  notaryUsername?: string;
+  notaryPhotoUrl?: string;
 }
 
 export const NotaryRequestsView: React.FC<NotaryRequestsViewProps> = ({
@@ -46,6 +49,9 @@ export const NotaryRequestsView: React.FC<NotaryRequestsViewProps> = ({
   onSignRequest,
   onNavigateToDocument,
   searchQuery,
+  notaryName = 'Natasha S.H., M.Kn.',
+  notaryUsername = 'admin',
+  notaryPhotoUrl,
 }) => {
   const [activeFilter, setActiveFilter] = useState<string>('Semua');
   const [signingRequest, setSigningRequest] = useState<ClientRequestItem | null>(null);
@@ -835,7 +841,9 @@ Penghadap menerangkan dengan sah dan benar bahwa segala data dan alas hak yang d
         onClose={() => setIsFaceModalOpen(false)}
         onSuccess={handleFaceSuccess}
         purposeTitle="Otorisasi Penandatanganan Akta (Fallback Dongle)"
-        expectedName="Natasha S.H., M.Kn."
+        expectedName={notaryName}
+        signerUsername={notaryUsername}
+        registeredPhotoUrl={notaryPhotoUrl}
       />
     </div>
   );

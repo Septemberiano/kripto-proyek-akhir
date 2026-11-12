@@ -130,7 +130,13 @@ export const Header: React.FC<HeaderProps> = ({
               : 'bg-[#263640] text-[#dbe9ed]'
           }`}
         >
-          {session.role === 'superadmin' ? (
+          {session.photo_url ? (
+            <img
+              src={session.photo_url}
+              alt={session.displayName}
+              className="w-4 h-4 rounded-full object-cover border border-emerald-400 shrink-0"
+            />
+          ) : session.role === 'superadmin' ? (
             <Server className="w-3.5 h-3.5 text-indigo-400" />
           ) : session.role === 'admin' ? (
             <Usb className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
@@ -141,7 +147,7 @@ export const Header: React.FC<HeaderProps> = ({
             {session.role === 'superadmin'
               ? `Super Admin: ${session.displayName.split(' ')[0]}`
               : session.role === 'admin'
-              ? `USB Dongle: ${session.displayName.split(' ')[0]}`
+              ? `Notaris: ${session.displayName.split(' ')[0]}`
               : `Portal: ${session.displayName.split(' ')[0]}`}
           </span>
         </div>

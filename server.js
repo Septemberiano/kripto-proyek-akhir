@@ -86,6 +86,21 @@ try { db.exec(`ALTER TABLE client_requests ADD COLUMN document_id TEXT`); } catc
 try { db.exec(`ALTER TABLE users ADD COLUMN photo_url TEXT`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN face_descriptor TEXT`); } catch {}
 
+// Seed default photo for admin notary if empty
+try {
+  const adminRow = db.prepare("SELECT photo_url FROM users WHERE username = 'admin'").get();
+  if (adminRow && !adminRow.photo_url) {
+    db.prepare(`
+      UPDATE users
+      SET photo_url = ?, face_descriptor = ?
+      WHERE username = 'admin'
+    `).run(
+      'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80',
+      'SHA256-BIO-NATASHA-DEMO-DESCRIPTOR-9901'
+    );
+  }
+} catch {}
+
 // Seed default security token for admin if empty
 try {
   const tokenCountStmt = db.prepare('SELECT COUNT(*) as count FROM security_tokens');

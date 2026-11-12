@@ -361,17 +361,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <div
-                className={`w-8 h-8 rounded-full font-serif font-bold text-xs grid place-items-center shrink-0 ${
-                  isSuperAdmin
-                    ? 'bg-indigo-700 text-indigo-100'
-                    : isAdmin
-                    ? 'bg-[#77323d] text-[#f0dfda]'
-                    : 'bg-[#526d78] text-[#e8f0f2]'
-                }`}
-              >
-                {initials || 'US'}
-              </div>
+              {session.photo_url ? (
+                <img
+                  src={session.photo_url}
+                  alt={session.displayName}
+                  className="w-8 h-8 rounded-full object-cover border border-emerald-400 shrink-0 shadow-xs"
+                />
+              ) : (
+                <div
+                  className={`w-8 h-8 rounded-full font-serif font-bold text-xs grid place-items-center shrink-0 ${
+                    isSuperAdmin
+                      ? 'bg-indigo-700 text-indigo-100'
+                      : isAdmin
+                      ? 'bg-[#77323d] text-[#f0dfda]'
+                      : 'bg-[#526d78] text-[#e8f0f2]'
+                  }`}
+                >
+                  {initials || 'US'}
+                </div>
+              )}
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-[#e0e7e5] truncate">
                   {session.displayName}

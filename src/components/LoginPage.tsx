@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Shield,
   Lock,
@@ -20,8 +20,8 @@ import {
   Camera,
   HardDrive,
 } from 'lucide-react';
-import { loginUser, registerUser, fetchSecurityTokens } from '../services/api';
-import type { UserSession, UserRole } from '../types';
+import { loginUser, registerUser, fetchSecurityTokens, fetchUsers } from '../services/api';
+import type { UserSession, UserRole, UserItem } from '../types';
 import { FaceRecognitionModal } from './FaceRecognitionModal';
 import { verifyDongleKeyFile } from '../utils/dongle';
 
@@ -35,6 +35,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   // Mode: 'login-superadmin' | 'login-admin' | 'login-client' | 'register'
   const [activeMode, setActiveMode] = useState<LoginMode>('login-admin');
 
+  // Registered Notaries list from SQLite
+  const [notariesList, setNotariesList] = useState<UserItem[]>([]);
+  const [selectedNotaryId, setSelectedNotaryId] = useState<string>('usr-admin-1');
+
   // Login form state
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('admin123');
@@ -45,6 +49,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [dongleConnected, setDongleConnected] = useState(true);
   const [verifiedSerial, setVerifiedSerial] = useState<string | null>('FIPS-NATASHA-2026-9901');
   const [isFaceModalOpen, setIsFaceModalOpen] = useState(false);
+
+  // Load Notaries from DB on mount
+  useEffect(() => {
+    fetchUsers()
+      .then((users) => {
+        const notaries = users.filter((u) => u.role === 'admin');
+        if (notaries.length > 0) {
+          setNotariesList(notaries);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const activeNotary: UserItem =
+    notariesList.find((n) => n.id === selectedNotaryId) ||
+    notariesList[0] || {
+      id: 'usr-admin-1',
+      username: 'admin',
+      role: 'admin',
+      name: 'Natasha S.H., M.Kn.',
+      photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80',
+      face_descriptor: 'SHA256-BIO-NATASHA-DEMO-DESCRIPTOR-9901',
+      created_at: new Date().toISOString(),
+    };
 
   // Handle Loading Key from Physical Flashdisk
   const handleFlashdiskKeySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,11 +124,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   }) => {
     setIsLoading(true);
     try {
-      const res = await loginUser('admin', 'admin123', 'admin');
+      const targetUser = activeNotary.username || username || 'admin';
+      const targetPass = password || (targetUser === 'admin' ? 'admin123' : '');
+      const res = await loginUser(targetUser, targetPass, 'admin');
       if (res.success && res.session) {
         onLoginSuccess({
           ...res.session,
           isDongleConnected: false, // Mark that they entered via emergency biometric bypass
+        });
+      } else {
+        // Emergency bypass allowed via Face Recognition match against database template
+        onLoginSuccess({
+          username: activeNotary.username,
+          displayName: activeNotary.name,
+          role: 'admin',
+          loginTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+          isDongleConnected: false,
+          token: `AN-VAULT-EMERGENCY-${_result.biometricHash.slice(0, 12)}`,
+          photo_url: activeNotary.photo_url || '',
+          face_descriptor: activeNotary.face_descriptor || '',
+          nik: activeNotary.nik,
+          email: activeNotary.email,
+          phone: activeNotary.phone,
         });
       }
     } catch {
@@ -131,8 +176,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       setUsername('superadmin');
       setPassword('superadmin123');
     } else if (mode === 'login-admin') {
-      setUsername('admin');
-      setPassword('admin123');
+      setUsername(activeNotary.username || 'admin');
+      setPassword(activeNotary.username === 'admin' ? 'admin123' : '');
     } else if (mode === 'login-client') {
       setUsername('rina');
       setPassword('user123');
@@ -472,6 +517,64 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
           {activeMode === 'login-admin' && (
             <div className="mb-5 p-3.5 rounded-xl border border-emerald-700/60 bg-[#07241c]/95 space-y-3 text-xs">
+              {/* Notary Identity & Photo Card */}
+              <div className="p-2.5 rounded-lg bg-[#0d3329] border border-emerald-600/50 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {activeNotary.photo_url ? (
+                    <img
+                      src={activeNotary.photo_url}
+                      alt={activeNotary.name}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-emerald-400 shadow-sm shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-emerald-900 border border-emerald-500 font-bold text-xs grid place-items-center text-emerald-300 shrink-0">
+                      {activeNotary.name
+                        .split(' ')
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((w) => w[0].toUpperCase())
+                        .join('')}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-semibold text-white truncate text-xs">
+                      {activeNotary.name}
+                    </div>
+                    <div className="text-[10px] text-emerald-300/80 font-mono truncate">
+                      @{activeNotary.username} · Notaris & PPAT
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notary Selector (if multiple notaries registered) */}
+                {notariesList.length > 1 ? (
+                  <select
+                    value={selectedNotaryId}
+                    onChange={(e) => {
+                      const nId = e.target.value;
+                      setSelectedNotaryId(nId);
+                      const n = notariesList.find((item) => item.id === nId);
+                      if (n) {
+                        setUsername(n.username);
+                        setPassword(n.username === 'admin' ? 'admin123' : '');
+                      }
+                    }}
+                    className="px-2 py-1 rounded bg-[#184a3c] border border-emerald-500 text-white text-[10px] focus:outline-none cursor-pointer"
+                  >
+                    {notariesList.map((n) => (
+                      <option key={n.id} value={n.id} className="bg-[#07241c] text-white">
+                        {n.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-600 shrink-0">
+                    Akun Notaris Aktif
+                  </span>
+                )}
+              </div>
+
+              {/* Hardware Dongle Connection Status */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div
@@ -541,6 +644,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   type="button"
                   onClick={() => setIsFaceModalOpen(true)}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-[11px] font-medium border border-amber-700/60 transition cursor-pointer"
+                  title="Masuk menggunakan pemindaian wajah biometrik darurat"
                 >
                   <Camera className="w-3.5 h-3.5 text-amber-400" />
                   <span>Dongle Hilang? Face Recognition</span>
@@ -1065,7 +1169,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         onClose={() => setIsFaceModalOpen(false)}
         onSuccess={handleFaceAuthSuccess}
         purposeTitle="Masuk Darurat Ruang Kerja Notaris (Dongle Absen)"
-        expectedName="Natasha S.H., M.Kn."
+        expectedName={activeNotary.name}
+        signerUsername={activeNotary.username}
+        registeredPhotoUrl={activeNotary.photo_url}
       />
     </div>
   );

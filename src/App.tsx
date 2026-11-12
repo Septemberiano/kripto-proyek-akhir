@@ -337,6 +337,9 @@ export function App() {
                   onSignRequest={handleSignRequest}
                   onNavigateToDocument={(_docId) => setActiveTab('Wasiat & Akta')}
                   searchQuery={searchQuery}
+                  notaryName={session.displayName}
+                  notaryUsername={session.username}
+                  notaryPhotoUrl={session.photo_url}
                 />
               )}
 
