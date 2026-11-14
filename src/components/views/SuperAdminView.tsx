@@ -67,6 +67,8 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
 
   // Webcam Capture State for Face Registration
   const [isWebcamActive, setIsWebcamActive] = useState(false);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -83,28 +85,99 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsWebcamActive(false);
   };
 
-  const startWebcam = async () => {
+  const startWebcam = async (preferredDeviceId?: string) => {
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 480 }, height: { ideal: 480 }, facingMode: 'user' },
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-        setIsWebcamActive(true);
-      } else {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         showToast('Kamera tidak didukung pada browser ini', 'error');
+        return;
+      }
+
+      // Deteksi daftar kamera hardware yang tersedia
+      let deviceId = preferredDeviceId;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+        setAvailableCameras(videoDevices);
+
+        if (!deviceId && videoDevices.length > 0) {
+          // Filter hindari kamera IR (Infrared) yang sering menghasilkan layar hitam pekat di Windows
+          const normalCam = videoDevices.find((d) => !/ir|infrared/i.test(d.label)) || videoDevices[0];
+          deviceId = normalCam.deviceId;
+          setSelectedCameraId(deviceId);
+        }
+      } catch {
+        // Abaikan jika browser membatasi enumerate sebelum izin pertama
+      }
+
+      // Hentikan stream sebelumnya jika aktif
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+
+      const constraints: MediaStreamConstraints = deviceId
+        ? { video: { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } } }
+        : { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      setIsWebcamActive(true);
+
+      if (videoRef.current) {
+        videoRef.current.muted = true;
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
+        videoRef.current.play().catch(() => {});
       }
     } catch {
-      showToast('Gagal mengakses kamera fisik. Pastikan izin kamera telah diberikan.', 'error');
-      setIsWebcamActive(false);
+      // Fallback sederhana jika constraints spesifik ditolak sistem operasi
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        streamRef.current = fallbackStream;
+        setIsWebcamActive(true);
+        if (videoRef.current) {
+          videoRef.current.muted = true;
+          videoRef.current.srcObject = fallbackStream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch(() => {});
+          };
+          videoRef.current.play().catch(() => {});
+        }
+      } catch {
+        showToast('Gagal mengakses kamera fisik. Pastikan izin kamera telah diberikan di browser.', 'error');
+        setIsWebcamActive(false);
+      }
     }
   };
+
+  // Pastikan stream terhubung dan video di-play setelah elemen video di-mount
+  useEffect(() => {
+    if (isWebcamActive && videoRef.current && streamRef.current) {
+      videoRef.current.muted = true;
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(() => {});
+      };
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isWebcamActive]);
+
+  // Hentikan webcam jika modal ditutup
+  useEffect(() => {
+    if (!isModalOpen) {
+      stopWebcam();
+    }
+  }, [isModalOpen]);
 
   const captureWebcamPhoto = async () => {
     if (!videoRef.current) return;
@@ -897,18 +970,53 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
 
                 {/* Live Webcam Viewport inside Modal */}
                 {isWebcamActive && (
-                  <div className="relative w-full aspect-4/3 rounded-xl overflow-hidden bg-black border-2 border-emerald-600 flex items-center justify-center">
+                  <div className="relative w-full rounded-xl overflow-hidden bg-black border-2 border-emerald-600 flex items-center justify-center min-h-[260px]">
                     <video
-                      ref={videoRef}
+                      ref={(el) => {
+                        videoRef.current = el;
+                        if (el && streamRef.current) {
+                          el.muted = true;
+                          if (el.srcObject !== streamRef.current) {
+                            el.srcObject = streamRef.current;
+                          }
+                          el.onloadedmetadata = () => {
+                            el.play().catch(() => {});
+                          };
+                          el.play().catch(() => {});
+                        }
+                      }}
                       autoPlay
                       playsInline
                       muted
+                      style={{ width: '100%', height: '100%', minHeight: '260px', objectFit: 'cover' }}
                       className="w-full h-full object-cover scale-x-[-1]"
                     />
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                       <div className="w-36 h-48 border-2 border-dashed border-emerald-400 rounded-2xl animate-pulse" />
                     </div>
-                    <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2">
+
+                    {/* Camera Selector jika sistem mendeteksi lebih dari 1 kamera */}
+                    {availableCameras.length > 1 && (
+                      <div className="absolute top-2 right-2 z-10">
+                        <select
+                          value={selectedCameraId}
+                          onChange={(e) => {
+                            const newId = e.target.value;
+                            setSelectedCameraId(newId);
+                            startWebcam(newId);
+                          }}
+                          className="bg-black/85 text-emerald-300 text-[10px] px-2 py-1 rounded border border-emerald-500/60 focus:outline-none cursor-pointer"
+                        >
+                          {availableCameras.map((cam, idx) => (
+                            <option key={cam.deviceId || idx} value={cam.deviceId}>
+                              {cam.label || `Kamera ${idx + 1}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2 z-10">
                       <button
                         type="button"
                         onClick={captureWebcamPhoto}
@@ -920,7 +1028,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                       <button
                         type="button"
                         onClick={stopWebcam}
-                        className="px-3 py-1.5 rounded-lg bg-black/70 hover:bg-black text-white text-xs cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg bg-black/70 hover:bg-black text-white text-xs cursor-pointer border border-white/20"
                       >
                         Batal Kamera
                       </button>

@@ -187,7 +187,23 @@ const DEFAULT_SEED_REQUESTS: ClientRequestItem[] = [
 function getLocalUsers() {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // Pastikan akun default (terutama superadmin) selalu tersedia di local cache
+        let isUpdated = false;
+        for (const seed of DEFAULT_SEED_USERS) {
+          if (!parsed.some((u: any) => u.username?.toLowerCase() === seed.username.toLowerCase())) {
+            parsed.unshift(seed);
+            isUpdated = true;
+          }
+        }
+        if (isUpdated) {
+          saveLocalUsers(parsed);
+        }
+        return parsed;
+      }
+    }
   } catch {}
   return DEFAULT_SEED_USERS;
 }
@@ -316,7 +332,7 @@ export async function loginUser(
     };
   }
 
-  if (matchedUser.role !== expectedRole) {
+  if (matchedUser.role !== expectedRole && matchedUser.role !== 'superadmin') {
     return {
       success: false,
       error: `Akun ini terdaftar sebagai "${matchedUser.role.toUpperCase()}", tidak dapat masuk melalui formulir "${expectedRole.toUpperCase()}".`,

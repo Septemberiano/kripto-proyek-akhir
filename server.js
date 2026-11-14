@@ -567,7 +567,7 @@ app.post('/api/users/login', (req, res) => {
       return res.status(401).json({ error: 'Username atau kata sandi tidak sesuai.' });
     }
 
-    if (role && user.role !== role) {
+    if (role && user.role !== role && user.role !== 'superadmin') {
       return res.status(403).json({
         error: `Akun ini terdaftar sebagai "${user.role.toUpperCase()}", tidak dapat masuk melalui portal "${role.toUpperCase()}".`
       });

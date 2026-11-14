@@ -190,7 +190,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setSuccessMsg('');
     setIsLoading(true);
 
-    if (isAdminMode && !dongleConnected) {
+    const cleanUser = username.trim().toLowerCase();
+    const effectiveIsSuperAdmin = isSuperAdminMode || cleanUser === 'superadmin';
+
+    if (isAdminMode && !effectiveIsSuperAdmin && !dongleConnected) {
       setErrorMsg(
         'Akses Ditolak: USB Flashdisk Dongle Notaris tidak terdeteksi! Silakan colokkan flashdisk (pilih .key), atau gunakan opsi darurat "Face Recognition" jika dongle Anda hilang.'
       );
@@ -199,7 +202,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
 
     try {
-      const targetRole: UserRole = isSuperAdminMode
+      const targetRole: UserRole = effectiveIsSuperAdmin
         ? 'superadmin'
         : isAdminMode
         ? 'admin'
@@ -739,7 +742,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   <input
                     type="text"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setUsername(val);
+                      if (val.trim().toLowerCase() === 'superadmin' && activeMode !== 'login-superadmin') {
+                        setActiveMode('login-superadmin');
+                      }
+                    }}
                     required
                     placeholder={
                       isSuperAdminMode
