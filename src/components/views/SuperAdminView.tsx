@@ -1069,7 +1069,7 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={startWebcam}
+                          onClick={() => startWebcam()}
                           className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-medium text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
                         >
                           <Camera className="w-3.5 h-3.5" />
