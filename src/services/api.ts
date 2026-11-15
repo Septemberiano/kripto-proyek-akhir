@@ -1,0 +1,1270 @@
+import type {
+  AuditLogItem,
+  DocumentItem,
+  UserSession,
+  RegisterPayload,
+  ClientRequestItem,
+  UserRole,
+  UserItem,
+  SystemStats,
+  SecurityTokenItem,
+} from '../types';
+import { sha256 } from '../utils/crypto';
+
+const API_BASE_URL = 'http://localhost:5000/api';
+const LOCAL_STORAGE_DOCS_KEY = 'arsipnusa_documents_vault';
+const LOCAL_STORAGE_LOGS_KEY = 'arsipnusa_audit_logs_vault';
+const LOCAL_STORAGE_USERS_KEY = 'arsipnusa_users_vault';
+const LOCAL_STORAGE_REQUESTS_KEY = 'arsipnusa_requests_vault';
+const LOCAL_STORAGE_TOKENS_KEY = 'arsipnusa_tokens_vault';
+
+// Fallback seed documents
+const DEFAULT_SEED_DOCUMENTS: DocumentItem[] = [
+  {
+    id: 'SHM-01428/JKT',
+    title: 'Tanah Kavling Menteng',
+    client: 'Budi Santoso',
+    type: 'Sertifikat Tanah',
+    value: 'Rp 12,8 M',
+    status: 'Terverifikasi',
+    encrypted_content: 'U2FsdGVkX1+v3qgH9/T4K9pW2bA7Q9qL8sE9F2D3v8xL3p9== [Encrypted with AES-256-GCM]',
+    algorithm: 'AES-256-GCM',
+    sha256_hash: 'a78f24b0789d2c20a67e9f3b1456ca01ef2b8901cb4d8e90a5b6c7d8e9f01234',
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+  },
+  {
+    id: 'WST-2025-0087',
+    title: 'Wasiat Keluarga Hartono',
+    client: 'Rina Hartono',
+    type: 'Surat Wasiat',
+    value: 'Rahasia',
+    status: 'Menunggu tanda tangan',
+    encrypted_content: 'U2FsdGVkX1+3K8eF92aB1qL7wE9D0c8A4f7m8sP2qR4tU6v== [Encrypted with ChaCha20-Poly1305]',
+    algorithm: 'ChaCha20-Poly1305',
+    sha256_hash: '3e94b7c12f08a99476bdf23485743bcae7102837461829405627192837465012',
+    created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
+  },
+  {
+    id: 'SK-ARU/104/25',
+    title: 'Kepemilikan Saham PT Arunika',
+    client: 'Dimas Pratama',
+    type: 'Kepemilikan Saham',
+    value: 'Rp 4,2 M',
+    status: 'Terverifikasi',
+    encrypted_content: 'U2FsdGVkX1/98mN4k5L8p2QwE7RtYuIoP3aD2sF4gH6jK8l== [Super-Encrypted: Vigenere + AES]',
+    algorithm: 'Super-Encrypted (Vigenere + AES)',
+    sha256_hash: '9c52b83748291048572019384756102938475610293847561029384756102938',
+    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+  },
+  {
+    id: 'HGB-00991/BKS',
+    title: 'Gudang Industri Cikarang',
+    client: 'PT Wahana Logistik',
+    type: 'Sertifikat Tanah',
+    value: 'Rp 8,4 M',
+    status: 'Dalam peninjauan',
+    encrypted_content: 'U2FsdGVkX1+81nQ3jK9xV4pL1qA7zC8wE2rT4yU6iO8pA1s== [Encrypted with AES-256-GCM]',
+    algorithm: 'AES-256-GCM',
+    sha256_hash: 'f47ac10b58cc4372a5670e02b2c3d479a9b0c1d2e3f4a5b6c7d8e9f01a2b3c4d',
+    client_signed_by: 'PT Wahana Logistik',
+    client_signed_at: new Date(Date.now() - 3600000 * 3).toISOString(),
+    client_signature_hash: '9e2c11b40812fa7d601e330184775599228833aa44bb55cc66dd77ee88ff9900',
+    created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
+  },
+  {
+    id: 'SHM-02041/JKS',
+    title: 'Rumah Tinggal Pondok Indah',
+    client: 'Rina Hartono',
+    type: 'Sertifikat Tanah',
+    value: 'Rp 7,6 M',
+    status: 'Terverifikasi',
+    encrypted_content: 'U2FsdGVkX1+9K8sP2qR4tU6vW8eF92aB1qL7wE9D0c8A4f7...== [Encrypted with AES-256-GCM]',
+    algorithm: 'AES-256-GCM',
+    sha256_hash: '5b2a1c098e7d6f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a',
+    created_at: new Date(Date.now() - 3600000 * 36).toISOString(),
+  },
+];
+
+const DEFAULT_SEED_LOGS: AuditLogItem[] = [
+  {
+    id: 'log-1',
+    action: 'Akta kepemilikan diperbarui',
+    detail: 'Tanah Kavling Menteng · SHM 01428/JKT',
+    tone: 'green',
+    timestamp: '12 menit lalu',
+    block_hash: 'a78f24b0789d2c20a67e9f3b1456ca01ef2b8901cb4d8e90a5b6c7d8e9f01234',
+  },
+  {
+    id: 'log-2',
+    action: 'Tanda tangan digital diminta',
+    detail: 'Wasiat Keluarga Hartono · WST-2025-0087',
+    tone: 'amber',
+    timestamp: '1 jam lalu',
+    block_hash: '3e94b7c12f08a99476bdf23485743bcae7102837461829405627192837465012',
+  },
+  {
+    id: 'log-3',
+    action: 'Berkas berhasil dienkripsi',
+    detail: '3 dokumen baru · AES-256 & ChaCha20',
+    tone: 'blue',
+    timestamp: 'Kemarin, 16.42',
+    block_hash: 'f47ac10b58cc4372a5670e02b2c3d479a9b0c1d2e3f4a5b6c7d8e9f01a2b3c4d',
+  },
+  {
+    id: 'log-4',
+    action: 'Block baru ditambahkan',
+    detail: 'Chain #BLK-008921 · Segel Kriptografis Sah',
+    tone: 'wine',
+    timestamp: 'Kemarin, 14.18',
+    block_hash: '9c52b83748291048572019384756102938475610293847561029384756102938',
+  },
+];
+
+// Fallback seed users
+const DEFAULT_SEED_USERS = [
+  {
+    id: 'usr-superadmin-1',
+    username: 'superadmin',
+    password_hash: 'e34f92a20532a873cb3184398070b4b82a8fa29cf48572c203dc5f0fa6158231', // superadmin123
+    role: 'superadmin' as const,
+    name: 'Ahmad Fauzi (Sysadmin)',
+    nik: '3171000000000001',
+    email: 'superadmin@arsipnusa.id',
+    phone: '+62 811-0000-999',
+    kyc_verified: 1,
+  },
+  {
+    id: 'usr-admin-1',
+    username: 'admin',
+    password_hash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', // admin123
+    role: 'admin' as const,
+    name: 'Natasha S.H., M.Kn.',
+    nik: '3171012345670001',
+    email: 'notaris@arsipnusa.id',
+    phone: '+62 21-555-8900',
+    photo_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80',
+    face_descriptor: 'SHA256-BIO-NATASHA-DEMO-DESCRIPTOR-9901',
+    kyc_verified: 1,
+  },
+  {
+    id: 'usr-client-1',
+    username: 'rina',
+    password_hash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', // user123
+    role: 'client' as const,
+    name: 'Rina Hartono',
+    nik: '3174094508900001',
+    email: 'rina.hartono@familytrust.co.id',
+    phone: '+62 812-4456-7890',
+    kyc_verified: 1,
+  },
+  {
+    id: 'usr-client-2',
+    username: 'budi',
+    password_hash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', // user123
+    role: 'client' as const,
+    name: 'Budi Santoso',
+    nik: '3171051204850003',
+    email: 'budi.santoso@mentengcapital.id',
+    phone: '+62 811-9283-102',
+    kyc_verified: 1,
+  },
+  {
+    id: 'usr-client-3',
+    username: 'hendra',
+    password_hash: 'e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446', // user123
+    role: 'client' as const,
+    name: 'Dr. Hendra Wijaya, Sp.A.',
+    nik: '3174011805780004',
+    email: 'hendra.wijaya@klinikprima.id',
+    phone: '+62 813-8877-2201',
+    kyc_verified: 0,
+  },
+];
+
+const DEFAULT_SEED_REQUESTS: ClientRequestItem[] = [
+  {
+    id: 'REQ-001',
+    client_name: 'Rina Hartono',
+    title: 'Konsultasi Perubahan Klausul Ahli Waris',
+    category: 'Surat Wasiat',
+    notes: 'Mohon penyesuaian porsi waris tanah kavling Pondok Indah untuk anak kedua.',
+    status: 'Sedang Diproses',
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+  },
+  {
+    id: 'REQ-002',
+    client_name: 'Rina Hartono',
+    title: 'Pendaftaran Akta Hibah Kendaraan & Properti',
+    category: 'Pendaftaran Aset',
+    notes: 'Pengurusan balik nama dokumen SHM nomor 02041/JKS.',
+    status: 'Menunggu Peninjauan',
+    created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
+  },
+];
+
+// LocalStorage helpers
+function getLocalUsers() {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // Pastikan akun default (terutama superadmin) selalu tersedia di local cache
+        let isUpdated = false;
+        for (const seed of DEFAULT_SEED_USERS) {
+          if (!parsed.some((u: any) => u.username?.toLowerCase() === seed.username.toLowerCase())) {
+            parsed.unshift(seed);
+            isUpdated = true;
+          }
+        }
+        if (isUpdated) {
+          saveLocalUsers(parsed);
+        }
+        return parsed;
+      }
+    }
+  } catch {}
+  return DEFAULT_SEED_USERS;
+}
+
+function saveLocalUsers(users: any[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(users));
+  } catch {}
+}
+
+function getLocalDocs(): DocumentItem[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_DOCS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return DEFAULT_SEED_DOCUMENTS;
+}
+
+function saveLocalDocs(docs: DocumentItem[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_DOCS_KEY, JSON.stringify(docs));
+  } catch {}
+}
+
+function getLocalLogs(): AuditLogItem[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_LOGS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return DEFAULT_SEED_LOGS;
+}
+
+function saveLocalLogs(logs: AuditLogItem[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_LOGS_KEY, JSON.stringify(logs));
+  } catch {}
+}
+
+function getLocalRequests(): ClientRequestItem[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_REQUESTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return DEFAULT_SEED_REQUESTS;
+}
+
+function saveLocalRequests(reqs: ClientRequestItem[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_REQUESTS_KEY, JSON.stringify(reqs));
+  } catch {}
+}
+
+// Backend Health
+export async function checkBackendHealth(): Promise<{ isOnline: boolean; message: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`${API_BASE_URL}/health`, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      return { isOnline: true, message: 'SQLite REST API Terhubung (Port 5000)' };
+    }
+  } catch {}
+  return { isOnline: false, message: 'Mode Offline (Penyimpanan Lokal Aktif)' };
+}
+
+// User Authentication: Login
+export async function loginUser(
+  username: string,
+  password: string,
+  expectedRole: UserRole
+): Promise<{ success: boolean; session?: UserSession; error?: string }> {
+  const passwordHash = await sha256(password);
+  const cleanUsername = username.trim().toLowerCase();
+
+  // Try Remote SQLite API
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/users/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: cleanUsername,
+        password_hash: passwordHash,
+        role: expectedRole,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok && json.success) {
+      const u = json.user;
+      const session: UserSession = {
+        username: u.username,
+        displayName: u.name,
+        role: u.role,
+        loginTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        isDongleConnected: u.role === 'admin' || u.role === 'superadmin',
+        token: `AN-VAULT-${passwordHash.slice(0, 16).toUpperCase()}`,
+        nik: u.nik,
+        email: u.email,
+        phone: u.phone,
+        photo_url: u.photo_url || '',
+        face_descriptor: u.face_descriptor || '',
+      };
+      return { success: true, session };
+    } else {
+      return { success: false, error: json.error || 'Autentikasi gagal.' };
+    }
+  } catch {
+    // Offline fallback using LocalStorage users
+  }
+
+  const users = getLocalUsers();
+  const matchedUser = users.find(
+    (u: any) => u.username.toLowerCase() === cleanUsername && u.password_hash === passwordHash
+  );
+
+  if (!matchedUser) {
+    return {
+      success: false,
+      error: `Kredensial tidak valid untuk ${cleanUsername}. Silakan periksa kembali username dan kata sandi.`,
+    };
+  }
+
+  if (matchedUser.role !== expectedRole && matchedUser.role !== 'superadmin') {
+    return {
+      success: false,
+      error: `Akun ini terdaftar sebagai "${matchedUser.role.toUpperCase()}", tidak dapat masuk melalui formulir "${expectedRole.toUpperCase()}".`,
+    };
+  }
+
+  const session: UserSession = {
+    username: matchedUser.username,
+    displayName: matchedUser.name,
+    role: matchedUser.role,
+    loginTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+    isDongleConnected: matchedUser.role === 'admin' || matchedUser.role === 'superadmin',
+    token: `AN-VAULT-${passwordHash.slice(0, 16).toUpperCase()}`,
+    nik: matchedUser.nik,
+    email: matchedUser.email,
+    phone: matchedUser.phone,
+    photo_url: matchedUser.photo_url || '',
+    face_descriptor: matchedUser.face_descriptor || '',
+  };
+
+  return { success: true, session };
+}
+
+// User Registration: Sign Up (Buat akun sendiri)
+export async function registerUser(
+  payload: RegisterPayload
+): Promise<{ success: boolean; user?: any; error?: string }> {
+  const passwordHash = await sha256(payload.password);
+  const cleanUsername = payload.username.trim().toLowerCase();
+
+  const userObj = {
+    id: `usr-${payload.role || 'client'}-${Date.now()}`,
+    username: cleanUsername,
+    password_hash: passwordHash,
+    role: payload.role || 'client',
+    name: payload.name.trim(),
+    nik: payload.nik?.trim() || '',
+    email: payload.email?.trim() || '',
+    phone: payload.phone?.trim() || '',
+    kyc_verified: payload.role === 'admin' || payload.role === 'superadmin' ? 1 : 0,
+    created_at: new Date().toISOString(),
+  };
+
+  // Try Remote SQLite API
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userObj),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok) {
+      // Also cache in local storage
+      const current = getLocalUsers();
+      saveLocalUsers([json, ...current]);
+      return { success: true, user: json };
+    } else {
+      return { success: false, error: json.error || 'Gagal mendaftarkan akun.' };
+    }
+  } catch {
+    // Offline fallback
+  }
+
+  const current = getLocalUsers();
+  if (current.some((u: any) => u.username.toLowerCase() === cleanUsername)) {
+    return { success: false, error: `Username "${cleanUsername}" sudah digunakan.` };
+  }
+
+  saveLocalUsers([userObj, ...current]);
+  return { success: true, user: userObj };
+}
+
+// Documents API
+export async function fetchDocuments(clientName?: string): Promise<{ data: DocumentItem[]; fromBackend: boolean }> {
+  try {
+    const url = clientName
+      ? `${API_BASE_URL}/documents?client=${encodeURIComponent(clientName)}`
+      : `${API_BASE_URL}/documents`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data: DocumentItem[] = await res.json();
+      saveLocalDocs(data);
+      return { data, fromBackend: true };
+    }
+  } catch {}
+
+  const all = getLocalDocs();
+  if (clientName) {
+    const filtered = all.filter((d) => d.client.toLowerCase().includes(clientName.toLowerCase()));
+    return { data: filtered, fromBackend: false };
+  }
+  return { data: all, fromBackend: false };
+}
+
+export async function createDocument(
+  payload: Omit<DocumentItem, 'id' | 'created_at'>
+): Promise<{ data: DocumentItem; fromBackend: boolean }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const created: DocumentItem = await res.json();
+      const current = getLocalDocs();
+      saveLocalDocs([created, ...current]);
+      return { data: created, fromBackend: true };
+    }
+  } catch {}
+
+  // Offline fallback creation
+  const offlineDoc: DocumentItem = {
+    ...payload,
+    id: `AKT-${Date.now().toString().slice(-6)}`,
+    created_at: new Date().toISOString(),
+  };
+  const current = getLocalDocs();
+  saveLocalDocs([offlineDoc, ...current]);
+
+  const logs = getLocalLogs();
+  const newLog: AuditLogItem = {
+    id: `log-${Date.now()}`,
+    action: 'Dokumen Baru Didaftarkan (Lokal)',
+    detail: `${offlineDoc.title} · ${offlineDoc.client}`,
+    tone: 'blue',
+    timestamp: 'Baru saja',
+    block_hash: offlineDoc.sha256_hash,
+  };
+  saveLocalLogs([newLog, ...logs]);
+
+  return { data: offlineDoc, fromBackend: false };
+}
+
+export interface SignDocumentPayload {
+  signerRole: 'client' | 'admin';
+  signerName: string;
+  username?: string;
+  passwordHash?: string;
+  authMethod?: string;
+  signatureHash?: string;
+  publicKey?: string;
+}
+
+export async function signDocument(
+  docId: string,
+  payload: SignDocumentPayload
+): Promise<{ success: boolean; document: DocumentItem; message: string; fromBackend: boolean }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(docId)}/sign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Gagal menandatangani dokumen di server.');
+    }
+
+    const currentDocs = getLocalDocs();
+    saveLocalDocs(currentDocs.map((d) => (d.id === docId ? data.document : d)));
+    return {
+      success: true,
+      document: data.document,
+      message: data.message || 'Dokumen berhasil ditandatangani.',
+      fromBackend: true,
+    };
+  } catch (err: any) {
+    // Re-throw explicit backend validation/auth errors (do not swallow into offline fallback)
+    if (
+      err?.message &&
+      !err.message.includes('fetch') &&
+      !err.message.includes('abort') &&
+      !err.message.includes('NetworkError') &&
+      err.name !== 'AbortError' &&
+      err.name !== 'TypeError'
+    ) {
+      throw err;
+    }
+  }
+
+  // Offline fallback
+  const currentDocs = getLocalDocs();
+  const target = currentDocs.find((d) => d.id === docId);
+  if (!target) {
+    throw new Error('Dokumen tidak ditemukan di penyimpanan lokal.');
+  }
+
+  const now = new Date().toISOString();
+
+  if (payload.signerRole === 'client') {
+    if (target.status !== 'Menunggu tanda tangan') {
+      throw new Error(`Dokumen berstatus "${target.status}" tidak lagi menunggu tanda tangan klien.`);
+    }
+
+    if (payload.username && payload.passwordHash) {
+      const users = getLocalUsers();
+      const matched = users.find(
+        (u: any) => u.username?.toLowerCase() === payload.username!.toLowerCase()
+      );
+      if (matched && matched.password_hash !== payload.passwordHash) {
+        throw new Error('Kata sandi konfirmasi akun klien tidak sesuai.');
+      }
+    }
+
+    const clientSigHash =
+      payload.signatureHash ||
+      (await sha256(
+        `CLIENT_SIGN|${target.id}|${target.sha256_hash}|${payload.signerName}|${now}`
+      ));
+
+    const updatedDoc: DocumentItem = {
+      ...target,
+      status: 'Dalam peninjauan',
+      client_signed_by: payload.signerName,
+      client_signed_at: now,
+      client_signature_hash: clientSigHash,
+      client_public_key: payload.publicKey || target.client_public_key,
+    };
+
+    saveLocalDocs(currentDocs.map((d) => (d.id === docId ? updatedDoc : d)));
+    const currentReqs = getLocalRequests();
+    saveLocalRequests(
+      currentReqs.map((r) =>
+        r.document_id === docId
+          ? {
+              ...r,
+              status: 'Menunggu Pengesahan Notaris',
+              notary_notes: `Draf akta telah ditandatangani oleh klien (${payload.signerName}). Menunggu pengesahan akhir Notaris.`,
+            }
+          : r
+      )
+    );
+    const logs = getLocalLogs();
+    saveLocalLogs([
+      {
+        id: `log-${Date.now()}`,
+        action: 'Tanda Tangan Persetujuan Klien',
+        detail: `${target.title} · ${payload.signerName} (Menunggu Pengesahan Notaris)`,
+        tone: 'blue',
+        timestamp: 'Baru saja',
+        block_hash: clientSigHash,
+      },
+      ...logs,
+    ]);
+
+    return {
+      success: true,
+      document: updatedDoc,
+      message: 'Tanda tangan persetujuan klien berhasil dibubuhkan (Mode Lokal). Menunggu pengesahan Notaris.',
+      fromBackend: false,
+    };
+  }
+
+  if (target.status === 'Terverifikasi') {
+    throw new Error('Dokumen ini sudah terverifikasi dan tersegel.');
+  }
+  if (target.status === 'Menunggu tanda tangan') {
+    throw new Error('Dokumen ini masih menunggu tanda tangan persetujuan dari klien terlebih dahulu.');
+  }
+
+  const finalMethod = payload.authMethod || 'USB Dongle Token';
+  const notarySigHash =
+    payload.signatureHash ||
+    (await sha256(
+      `NOTARY_SEAL|${target.id}|${target.sha256_hash}|${target.client_signature_hash || ''}|${payload.signerName}|${now}`
+    ));
+
+  const updatedDoc: DocumentItem = {
+    ...target,
+    status: 'Terverifikasi',
+    notary_signed_by: payload.signerName,
+    notary_signed_at: now,
+    notary_signature_hash: notarySigHash,
+    notary_auth_method: finalMethod,
+    notary_public_key: payload.publicKey || target.notary_public_key,
+  };
+
+  saveLocalDocs(currentDocs.map((d) => (d.id === docId ? updatedDoc : d)));
+  const currentReqs = getLocalRequests();
+  saveLocalRequests(
+    currentReqs.map((r) =>
+      r.document_id === docId ? { ...r, status: 'Selesai & Tersegel' } : r
+    )
+  );
+  const logs = getLocalLogs();
+  saveLocalLogs([
+    {
+      id: `log-${Date.now()}`,
+      action: 'Pengesahan & Segel Akhir Notaris',
+      detail: `${target.title} · ${target.client} (${finalMethod})`,
+      tone: 'green',
+      timestamp: 'Baru saja',
+      block_hash: notarySigHash,
+    },
+    ...logs,
+  ]);
+
+  return {
+    success: true,
+    document: updatedDoc,
+    message: 'Dokumen resmi disahkan dan disegel oleh Notaris (Mode Lokal).',
+    fromBackend: false,
+  };
+}
+
+// Client Requests API
+export async function fetchClientRequests(clientName?: string): Promise<ClientRequestItem[]> {
+  try {
+    const url = clientName
+      ? `${API_BASE_URL}/requests?client=${encodeURIComponent(clientName)}`
+      : `${API_BASE_URL}/requests`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data: ClientRequestItem[] = await res.json();
+      saveLocalRequests(data);
+      return data;
+    }
+  } catch {}
+
+  const all = getLocalRequests();
+  if (clientName) {
+    return all.filter((r) => r.client_name.toLowerCase().includes(clientName.toLowerCase()));
+  }
+  return all;
+}
+
+export async function createClientRequest(
+  payload: Omit<ClientRequestItem, 'id' | 'status' | 'created_at'>
+): Promise<ClientRequestItem> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const created: ClientRequestItem = await res.json();
+      const current = getLocalRequests();
+      saveLocalRequests([created, ...current]);
+      return created;
+    }
+  } catch {}
+
+  const offlineReq: ClientRequestItem = {
+    ...payload,
+    id: `REQ-${Date.now().toString().slice(-5)}`,
+    status: 'Menunggu Peninjauan',
+    created_at: new Date().toISOString(),
+  };
+  const current = getLocalRequests();
+  saveLocalRequests([offlineReq, ...current]);
+  return offlineReq;
+}
+
+export interface SignRequestPayload {
+  title: string;
+  client: string;
+  type: string;
+  value: string;
+  encrypted_content: string;
+  algorithm: string;
+  sha256_hash: string;
+  notary_notes?: string;
+  signatureMode?: 'dual' | 'direct';
+  notaryName?: string;
+  authMethod?: string;
+}
+
+export async function updateClientRequestStatus(
+  id: string,
+  status: ClientRequestItem['status'],
+  notary_notes?: string
+): Promise<ClientRequestItem> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/requests/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, notary_notes }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.request) {
+        const current = getLocalRequests();
+        const updated = current.map((r) => (r.id === id ? data.request : r));
+        saveLocalRequests(updated);
+        return data.request;
+      }
+    }
+  } catch {}
+
+  const current = getLocalRequests();
+  const found = current.find((r) => r.id === id);
+  const updatedItem: ClientRequestItem = found
+    ? { ...found, status, notary_notes: notary_notes !== undefined ? notary_notes : found.notary_notes }
+    : {
+        id,
+        client_name: 'Klien',
+        title: 'Permintaan',
+        category: 'Umum',
+        notes: '',
+        status,
+        notary_notes,
+        created_at: new Date().toISOString(),
+      };
+
+  const updatedList = current.map((r) => (r.id === id ? updatedItem : r));
+  saveLocalRequests(updatedList);
+  return updatedItem;
+}
+
+export async function signClientRequest(
+  id: string,
+  payload: SignRequestPayload
+): Promise<{ success: boolean; document: DocumentItem; request: ClientRequestItem }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(`${API_BASE_URL}/requests/${id}/sign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json();
+      // Update local caches
+      const currentReqs = getLocalRequests();
+      const updatedReqs = currentReqs.map((r) => (r.id === id ? data.request : r));
+      saveLocalRequests(updatedReqs);
+
+      const currentDocs = getLocalDocs();
+      saveLocalDocs([data.document, ...currentDocs]);
+
+      return data;
+    }
+  } catch {}
+
+  // Fallback offline
+  const docId = `AKT-${Date.now().toString().slice(-6)}`;
+  const now = new Date().toISOString();
+  const isDual = payload.signatureMode !== 'direct';
+  const notaryName = payload.notaryName || 'Natasha S.H., M.Kn.';
+  const notarySigHash = isDual
+    ? undefined
+    : await sha256(`NOTARY_SEAL|${docId}|${payload.sha256_hash}|${notaryName}|${now}`);
+
+  const offlineDoc: DocumentItem = {
+    id: docId,
+    title: payload.title,
+    client: payload.client,
+    type: payload.type,
+    value: payload.value,
+    status: isDual ? 'Menunggu tanda tangan' : 'Terverifikasi',
+    encrypted_content: payload.encrypted_content,
+    algorithm: payload.algorithm,
+    sha256_hash: payload.sha256_hash,
+    created_at: now,
+    notary_signed_by: isDual ? undefined : notaryName,
+    notary_signed_at: isDual ? undefined : now,
+    notary_signature_hash: notarySigHash,
+    notary_auth_method: isDual ? undefined : payload.authMethod || 'USB Dongle Token',
+  };
+
+  const currentDocs = getLocalDocs();
+  saveLocalDocs([offlineDoc, ...currentDocs]);
+
+  const finalReqStatus: ClientRequestItem['status'] = isDual
+    ? 'Menunggu TTD Klien'
+    : 'Selesai & Tersegel';
+  const finalNotes = isDual
+    ? `Draf akta resmi (${docId}) telah diterbitkan oleh Notaris. Silakan tinjau dan bubuhkan tanda tangan digital persetujuan Anda.`
+    : payload.notary_notes;
+
+  const currentReqs = getLocalRequests();
+  const foundReq = currentReqs.find((r) => r.id === id);
+  const updatedReq: ClientRequestItem = foundReq
+    ? {
+        ...foundReq,
+        status: finalReqStatus,
+        notary_notes: finalNotes,
+        document_id: docId,
+      }
+    : {
+        id,
+        client_name: payload.client,
+        title: payload.title,
+        category: payload.type,
+        notes: '',
+        status: finalReqStatus,
+        notary_notes: finalNotes,
+        document_id: docId,
+        created_at: now,
+      };
+
+  saveLocalRequests(currentReqs.map((r) => (r.id === id ? updatedReq : r)));
+
+  // Add audit log
+  const newLog: AuditLogItem = {
+    id: `log-${Date.now()}`,
+    action: isDual ? 'Penerbitan Draf Akta (Menunggu TTD Klien)' : 'Pengesahan & Tanda Tangan Akta',
+    detail: `${payload.title} · ${payload.client}`,
+    tone: isDual ? 'amber' : 'green',
+    timestamp: 'Baru saja',
+    block_hash: payload.sha256_hash,
+  };
+  const logs = getLocalLogs();
+  saveLocalLogs([newLog, ...logs]);
+
+  return { success: true, document: offlineDoc, request: updatedReq };
+}
+
+// Audit Logs
+export async function fetchAuditLogs(): Promise<AuditLogItem[]> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`${API_BASE_URL}/audit-logs`, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const logs: AuditLogItem[] = await res.json();
+      saveLocalLogs(logs);
+      return logs;
+    }
+  } catch {}
+
+  return getLocalLogs();
+}
+
+// ================= SUPER ADMIN USER & SYSTEM APIS =================
+
+export async function fetchUsers(): Promise<UserItem[]> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/users`, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data: UserItem[] = await res.json();
+      return data;
+    }
+  } catch {}
+
+  // Fallback to local storage
+  const locals = getLocalUsers();
+  return locals.map((u: any) => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    name: u.name,
+    nik: u.nik,
+    email: u.email,
+    phone: u.phone,
+    photo_url: u.photo_url || '',
+    face_descriptor: u.face_descriptor || '',
+    kyc_verified: u.kyc_verified !== undefined ? u.kyc_verified : 1,
+    created_at: u.created_at || new Date().toISOString(),
+  }));
+}
+
+export async function verifyClientKyc(
+  userId: string
+): Promise<{ success: boolean; user?: UserItem; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}/kyc`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok && json.success) {
+      const locals = getLocalUsers();
+      saveLocalUsers(locals.map((u: any) => (u.id === userId ? { ...u, kyc_verified: 1 } : u)));
+      return { success: true, user: json.user };
+    }
+    return { success: false, error: json.error || 'Gagal memverifikasi KYC klien.' };
+  } catch {
+    const locals = getLocalUsers();
+    let updatedUser: UserItem | undefined;
+    const next = locals.map((u: any) => {
+      if (u.id === userId) {
+        updatedUser = { ...u, kyc_verified: 1 };
+        return updatedUser;
+      }
+      return u;
+    });
+    saveLocalUsers(next);
+    if (!updatedUser) {
+      return { success: false, error: 'Klien tidak ditemukan di penyimpanan lokal.' };
+    }
+    return { success: true, user: updatedUser };
+  }
+}
+
+export async function createUserByAdmin(
+  payload: RegisterPayload
+): Promise<{ success: boolean; user?: UserItem; error?: string }> {
+  try {
+    const passwordHash = await sha256(payload.password);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        password_hash: passwordHash,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok) {
+      return { success: true, user: json };
+    }
+    return { success: false, error: json.error || 'Gagal menambahkan pengguna.' };
+  } catch {
+    // Offline fallback
+    const locals = getLocalUsers();
+    const cleanUsername = payload.username.trim().toLowerCase();
+    if (locals.some((u: any) => u.username.toLowerCase() === cleanUsername)) {
+      return { success: false, error: `Username "${cleanUsername}" sudah digunakan.` };
+    }
+    const newUser: any = {
+      id: `usr-${payload.role || 'client'}-${Date.now()}`,
+      username: cleanUsername,
+      role: payload.role || 'client',
+      name: payload.name.trim(),
+      nik: payload.nik?.trim() || '',
+      email: payload.email?.trim() || '',
+      phone: payload.phone?.trim() || '',
+      photo_url: payload.photo_url || '',
+      face_descriptor: payload.face_descriptor || '',
+      password_hash: await sha256(payload.password),
+      created_at: new Date().toISOString(),
+    };
+    saveLocalUsers([newUser, ...locals]);
+    return { success: true, user: newUser };
+  }
+}
+
+export async function updateUser(
+  id: string,
+  payload: Partial<RegisterPayload>
+): Promise<{ success: boolean; user?: UserItem; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok && json.success) {
+      return { success: true, user: json.user };
+    }
+    return { success: false, error: json.error || 'Gagal memperbarui pengguna.' };
+  } catch {
+    // Offline fallback
+    const locals = getLocalUsers();
+    const idx = locals.findIndex((u: any) => u.id === id);
+    if (idx !== -1) {
+      const updated = {
+        ...locals[idx],
+        ...payload,
+        name: payload.name || locals[idx].name,
+        role: payload.role || locals[idx].role,
+        photo_url: payload.photo_url !== undefined ? payload.photo_url : locals[idx].photo_url,
+        face_descriptor: payload.face_descriptor !== undefined ? payload.face_descriptor : locals[idx].face_descriptor,
+      };
+      locals[idx] = updated;
+      saveLocalUsers(locals);
+      return { success: true, user: updated };
+    }
+    return { success: false, error: 'Pengguna tidak ditemukan.' };
+  }
+}
+
+export async function deleteUser(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/users/${id}`, {
+      method: 'DELETE',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const json = await res.json();
+    if (res.ok && json.success) {
+      return { success: true };
+    }
+    return { success: false, error: json.error || 'Gagal menghapus pengguna.' };
+  } catch {
+    const locals = getLocalUsers();
+    const filtered = locals.filter((u: any) => u.id !== id);
+    saveLocalUsers(filtered);
+    return { success: true };
+  }
+}
+
+export async function fetchSystemStats(): Promise<SystemStats> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_BASE_URL}/system/stats`, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  const docs = getLocalDocs();
+  const logs = getLocalLogs();
+  const users = getLocalUsers();
+  const reqs = getLocalRequests();
+
+  return {
+    users: {
+      total: users.length,
+      superadmin: users.filter((u: any) => u.role === 'superadmin').length,
+      admin: users.filter((u: any) => u.role === 'admin').length,
+      client: users.filter((u: any) => u.role === 'client').length,
+    },
+    documents: {
+      total: docs.length,
+      verified: docs.filter((d) => d.status === 'Terverifikasi').length,
+      pending: docs.filter((d) => d.status === 'Menunggu tanda tangan').length,
+      review: docs.filter((d) => d.status === 'Dalam peninjauan').length,
+    },
+    auditLogsCount: logs.length,
+    clientRequestsCount: reqs.length,
+    databaseSizeKb: 40,
+    databaseStatus: 'Penyimpanan Lokal Aktif',
+    timestamp: new Date().toISOString(),
+  };
+}
+
+// Security Tokens (USB Dongle) API
+const DEFAULT_SEED_TOKENS: SecurityTokenItem[] = [
+  {
+    id: 'tok-notary-01',
+    owner_username: 'admin',
+    serial_number: 'FIPS-NATASHA-2026-9901',
+    token_label: 'Flashdisk Dongle Notaris Natasha S.H.',
+    public_key_hash: 'a78f24b0789d2c20a67e9f3b1456ca01ef2b8901cb4d8e90a5b6c7d8e9f01234',
+    status: 'ACTIVE',
+    created_at: new Date().toISOString(),
+  },
+];
+
+function getLocalTokens(): SecurityTokenItem[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_TOKENS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  localStorage.setItem(LOCAL_STORAGE_TOKENS_KEY, JSON.stringify(DEFAULT_SEED_TOKENS));
+  return DEFAULT_SEED_TOKENS;
+}
+
+function saveLocalTokens(tokens: SecurityTokenItem[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_TOKENS_KEY, JSON.stringify(tokens));
+  } catch {}
+}
+
+export async function fetchSecurityTokens(username?: string): Promise<SecurityTokenItem[]> {
+  try {
+    const url = username
+      ? `${API_BASE_URL}/tokens?username=${encodeURIComponent(username)}`
+      : `${API_BASE_URL}/tokens`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      const rows = await res.json();
+      if (!username) saveLocalTokens(rows);
+      return rows;
+    }
+  } catch {}
+
+  const localTokens = getLocalTokens();
+  return username
+    ? localTokens.filter((t) => t.owner_username.toLowerCase() === username.toLowerCase())
+    : localTokens;
+}
+
+export async function issueSecurityToken(payload: {
+  owner_username: string;
+  serial_number: string;
+  token_label: string;
+  public_key_hash: string;
+}): Promise<SecurityTokenItem> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      const locals = getLocalTokens();
+      saveLocalTokens([data.token, ...locals.filter((t) => t.serial_number !== data.token.serial_number)]);
+      return data.token;
+    }
+  } catch {}
+
+  const newToken: SecurityTokenItem = {
+    id: `tok-${Date.now()}`,
+    ...payload,
+    status: 'ACTIVE',
+    created_at: new Date().toISOString(),
+  };
+  const locals = getLocalTokens();
+  saveLocalTokens([newToken, ...locals.filter((t) => t.serial_number !== newToken.serial_number)]);
+  return newToken;
+}
+
+export async function revokeSecurityToken(
+  serial_number: string,
+  reason: string
+): Promise<{ success: boolean; message: string; token?: SecurityTokenItem }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE_URL}/tokens/revoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serial_number, reason }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.token) {
+        const locals = getLocalTokens();
+        saveLocalTokens(locals.map((t) => (t.serial_number === serial_number ? data.token : t)));
+      }
+      return data;
+    }
+  } catch {}
+
+  let updatedToken: SecurityTokenItem | undefined;
+  const now = new Date().toISOString();
+  const next: SecurityTokenItem[] = getLocalTokens().map((t): SecurityTokenItem => {
+    if (t.serial_number === serial_number) {
+      updatedToken = { ...t, status: 'REVOKED', revoked_at: now, revoked_reason: reason };
+      return updatedToken;
+    }
+    return t;
+  });
+  saveLocalTokens(next);
+
+  return {
+    success: true,
+    token: updatedToken,
+    message: `Token ${serial_number} berhasil DIBLOKIR / DICABUT dari sistem (Mode Offline).`,
+  };
+}

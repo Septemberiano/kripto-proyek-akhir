@@ -1,0 +1,421 @@
+import React from 'react';
+import {
+  LayoutDashboard,
+  Building2,
+  FileText,
+  Users,
+  Archive,
+  Link2,
+  KeyRound,
+  Image,
+  Shield,
+  Usb,
+  Database,
+  LogOut,
+  X,
+  FileCheck,
+  Clock,
+  CheckCircle2,
+  Server,
+  Activity,
+} from 'lucide-react';
+import type { UserSession } from '../types';
+
+export type NavTab =
+  // Super Admin tabs
+  | 'Manajemen Pengguna'
+  | 'Status Sistem & Database'
+  | 'Audit Log Global'
+  // Notaris (Admin) tabs
+  | 'Ikhtisar'
+  | 'Permohonan Klien'
+  | 'Aset & Sertifikat'
+  | 'Wasiat & Akta'
+  | 'Klien'
+  | 'Berkas Terenkripsi'
+  | 'Chain of Title'
+  | 'Super Enkripsi'
+  | 'Steganografi'
+  // Client tabs
+  | 'Beranda'
+  | 'Aset Saya'
+  | 'Dokumen Saya'
+  | 'Permintaan'
+  | 'Riwayat Kepemilikan'
+  | 'Cek Keaslian Berkas';
+
+interface SidebarProps {
+  activeTab: NavTab;
+  setActiveTab: (tab: NavTab) => void;
+  isOpen: boolean;
+  onClose: () => void;
+  session: UserSession;
+  onLogout: () => void;
+  isBackendOnline: boolean;
+  documentsCount: number;
+  requestsCount?: number;
+  usersCount?: number;
+  clientsCount?: number;
+  clientDocumentsCount?: number;
+  onOpenDongleModal?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeTab,
+  setActiveTab,
+  isOpen,
+  onClose,
+  session,
+  onLogout,
+  isBackendOnline,
+  documentsCount,
+  requestsCount = 0,
+  usersCount = 5,
+  clientsCount = 0,
+  clientDocumentsCount = 0,
+  onOpenDongleModal,
+}) => {
+  const isSuperAdmin = session.role === 'superadmin';
+  const isAdmin = session.role === 'admin';
+
+  // Super Admin Navigation Items
+  const superAdminNavItems: { label: NavTab; icon: React.ReactNode; badge?: string | number }[] = [
+    { label: 'Manajemen Pengguna', icon: <Users className="w-4 h-4" />, badge: usersCount },
+    { label: 'Status Sistem & Database', icon: <Server className="w-4 h-4" />, badge: 'LIVE' },
+    { label: 'Audit Log Global', icon: <FileText className="w-4 h-4" /> },
+  ];
+
+  // Admin (Notaris) Navigation Items
+  const adminNavItems: { label: NavTab; icon: React.ReactNode; badge?: string | number }[] = [
+    { label: 'Ikhtisar', icon: <LayoutDashboard className="w-4 h-4" /> },
+    {
+      label: 'Permohonan Klien',
+      icon: <Clock className="w-4 h-4" />,
+      badge: requestsCount > 0 ? requestsCount : undefined,
+    },
+    { label: 'Aset & Sertifikat', icon: <Building2 className="w-4 h-4" /> },
+    { label: 'Wasiat & Akta', icon: <FileText className="w-4 h-4" />, badge: documentsCount },
+    { label: 'Klien', icon: <Users className="w-4 h-4" />, badge: clientsCount },
+    { label: 'Berkas Terenkripsi', icon: <Archive className="w-4 h-4" /> },
+    { label: 'Chain of Title', icon: <Link2 className="w-4 h-4" />, badge: 'BLOCK' },
+    { label: 'Super Enkripsi', icon: <KeyRound className="w-4 h-4" /> },
+    { label: 'Steganografi', icon: <Image className="w-4 h-4" /> },
+  ];
+
+  // Client Navigation Items
+  const clientNavItems: { label: NavTab; icon: React.ReactNode; badge?: string | number }[] = [
+    { label: 'Beranda', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { label: 'Aset Saya', icon: <Building2 className="w-4 h-4" /> },
+    { label: 'Dokumen Saya', icon: <FileText className="w-4 h-4" />, badge: clientDocumentsCount },
+    {
+      label: 'Permintaan',
+      icon: <Clock className="w-4 h-4" />,
+      badge: requestsCount > 0 ? requestsCount : undefined,
+    },
+    { label: 'Riwayat Kepemilikan', icon: <Link2 className="w-4 h-4" /> },
+    { label: 'Cek Keaslian Berkas', icon: <Image className="w-4 h-4" /> },
+  ];
+
+  const navItems = isSuperAdmin ? superAdminNavItems : isAdmin ? adminNavItems : clientNavItems;
+
+  const initials = session.displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('');
+
+  return (
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div
+          onClick={onClose}
+          className="fixed inset-0 bg-black/50 z-20 md:hidden backdrop-blur-xs transition-opacity"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 w-64 border-r text-[#e7ece9] flex flex-col p-4 transition-all duration-300 md:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        } ${
+          isSuperAdmin
+            ? 'bg-[#0b1322] border-[#1d2b45]'
+            : isAdmin
+            ? 'bg-[#142825] border-[#29403c]'
+            : 'bg-[#263640] border-[#3a4c56]'
+        }`}
+      >
+        {/* Brand header */}
+        <div
+          className={`flex items-center justify-between pb-4 border-b ${
+            isSuperAdmin
+              ? 'border-[#1a2942]'
+              : isAdmin
+              ? 'border-[#233a35]'
+              : 'border-[#334651]'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 grid place-items-center border rotate-45 shadow-[inset_0_0_0_2px] ${
+                isSuperAdmin
+                  ? 'bg-[#312e81] border-[#6366f1] shadow-[#0b1322]'
+                  : isAdmin
+                  ? 'bg-[#772e3a] border-[#a57b6d] shadow-[#142825]'
+                  : 'bg-[#526d78] border-[#93a6ad] shadow-[#263640]'
+              }`}
+            >
+              <span className="-rotate-45 text-[#f4e8dc] font-serif font-bold text-xs">AN</span>
+            </div>
+            <div>
+              <strong className="font-serif text-lg tracking-wide text-white block leading-tight">
+                ArsipNusa
+              </strong>
+              <span className="text-[10px] tracking-widest text-[#9caaa6] uppercase">
+                {isSuperAdmin
+                  ? 'Control Center'
+                  : isAdmin
+                  ? 'Notarial Vault'
+                  : 'Client Trust Portal'}
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="md:hidden p-1.5 rounded-md text-[#81938e] hover:text-white"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Workspace label (Strict RBAC - No Role Switcher) */}
+        <div className="pt-3 pb-2 px-2 text-[10px] font-bold tracking-widest text-[#8c9e99] uppercase flex items-center justify-between">
+          <span>
+            {isSuperAdmin
+              ? 'PUSAT KENDALI SUPER ADMIN'
+              : isAdmin
+              ? 'RUANG KERJA NOTARIS'
+              : 'PORTAL PRIBADI KLIEN'}
+          </span>
+          {isSuperAdmin ? (
+            <Activity className="w-3.5 h-3.5 text-indigo-400" />
+          ) : (
+            <FileCheck className="w-3.5 h-3.5 text-[#88bbaa]" />
+          )}
+        </div>
+
+        {/* Navigation list */}
+        <nav className="flex-1 space-y-1 overflow-y-auto py-1 scrollbar-thin">
+          {navItems.map((item) => {
+            const isActive = activeTab === item.label;
+            return (
+              <button
+                key={item.label}
+                onClick={() => {
+                  setActiveTab(item.label);
+                  onClose();
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                  isActive
+                    ? isSuperAdmin
+                      ? 'bg-[#1b2a47] text-white shadow-xs border-l-3 border-indigo-400'
+                      : isAdmin
+                      ? 'bg-[#26413c] text-white shadow-xs border-l-3 border-[#b88070]'
+                      : 'bg-[#3b525e] text-white shadow-xs border-l-3 border-[#9bb7c0]'
+                    : isSuperAdmin
+                    ? 'text-[#a5b4cf] hover:text-white hover:bg-[#142036]'
+                    : isAdmin
+                    ? 'text-[#aebbb7] hover:text-white hover:bg-[#1b3531]'
+                    : 'text-[#9bb7c0] hover:text-white hover:bg-[#30434d]'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={
+                      isActive
+                        ? 'text-white'
+                        : isSuperAdmin
+                        ? 'text-[#7d93b8]'
+                        : 'text-[#8c9e99]'
+                    }
+                  >
+                    {item.icon}
+                  </span>
+                  <span>{item.label}</span>
+                </div>
+                {item.badge !== undefined && (
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full ${
+                      isActive
+                        ? isSuperAdmin
+                          ? 'bg-indigo-600/50 text-indigo-200'
+                          : isAdmin
+                          ? 'bg-[#67303a] text-[#e8c4b9]'
+                          : 'bg-[#526d78] text-[#dbe9ed]'
+                        : 'bg-black/20 text-gray-300'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Sidebar Security & System Footer */}
+        <div
+          className={`pt-3 border-t space-y-2.5 ${
+            isSuperAdmin
+              ? 'border-[#1a2942]'
+              : isAdmin
+              ? 'border-[#233a35]'
+              : 'border-[#334651]'
+          }`}
+        >
+          {/* SQLite Backend Status */}
+          <div
+            className={`px-3 py-1.5 rounded-lg border flex items-center justify-between text-[11px] ${
+              isSuperAdmin
+                ? 'bg-[#070e1b] border-[#1d2b45]'
+                : isAdmin
+                ? 'bg-[#0e1d1a] border-[#233a35]'
+                : 'bg-[#1e2c34] border-[#344855]'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Database
+                className={`w-3.5 h-3.5 ${isSuperAdmin ? 'text-indigo-400' : 'text-[#88bbaa]'}`}
+              />
+              <span className="text-gray-300">SQLite REST API</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isBackendOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                }`}
+              />
+              <span
+                className={`text-[10px] font-medium ${
+                  isBackendOnline ? 'text-emerald-300' : 'text-amber-300'
+                }`}
+              >
+                {isBackendOnline ? 'Port 5000' : 'Offline'}
+              </span>
+            </div>
+          </div>
+
+          {/* Dongle / Biometric / Root Security Card */}
+          <div
+            onClick={isAdmin ? onOpenDongleModal : undefined}
+            title={isAdmin ? 'Klik untuk Manajemen USB Dongle & Kasus Kehilangan' : undefined}
+            className={`p-3 rounded-lg border transition ${
+              isAdmin ? 'cursor-pointer hover:border-emerald-400 hover:bg-[#1f3d37]' : ''
+            } ${
+              isSuperAdmin
+                ? 'border-[#23385d] bg-[#101c33]'
+                : isAdmin
+                ? 'border-[#2d4a45] bg-[#19302c]'
+                : 'border-[#405660] bg-[#2d414b]'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs font-semibold text-[#dce8e4]">
+              <div className="flex items-center gap-2">
+                <Shield
+                  className={`w-4 h-4 ${isSuperAdmin ? 'text-indigo-400' : 'text-[#88bbaa]'}`}
+                />
+                <span>
+                  {isSuperAdmin
+                    ? 'Akses Root Terproteksi'
+                    : isAdmin
+                    ? 'USB Dongle Notaris'
+                    : 'Akses Pribadi Aman'}
+                </span>
+              </div>
+              {isSuperAdmin ? (
+                <Server className="w-3.5 h-3.5 text-indigo-400" />
+              ) : isAdmin ? (
+                <Usb className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300" />
+              )}
+            </div>
+            <p className="text-[10px] text-gray-300 mt-1 mb-2">
+              {isSuperAdmin
+                ? 'Kontrol Penuh Sistem & Pengguna'
+                : isAdmin
+                ? 'FIPS 140-2 Aktif · Klik untuk kelola flashdisk'
+                : 'Biometrik aktif · Data terenkripsi'}
+            </p>
+            <div className="w-full h-1 bg-black/30 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full w-5/6 ${
+                  isSuperAdmin
+                    ? 'bg-indigo-500'
+                    : isAdmin
+                    ? 'bg-emerald-500'
+                    : 'bg-[#8db3b9]'
+                }`}
+              />
+            </div>
+          </div>
+
+          {/* User profile with logout button */}
+          <div
+            className={`p-2 rounded-lg border flex items-center justify-between ${
+              isSuperAdmin
+                ? 'bg-[#070e1b] border-[#1d2b45]'
+                : isAdmin
+                ? 'bg-[#10231f] border-[#233a35]'
+                : 'bg-[#202e36] border-[#364b58]'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              {session.photo_url ? (
+                <img
+                  src={session.photo_url}
+                  alt={session.displayName}
+                  className="w-8 h-8 rounded-full object-cover border border-emerald-400 shrink-0 shadow-xs"
+                />
+              ) : (
+                <div
+                  className={`w-8 h-8 rounded-full font-serif font-bold text-xs grid place-items-center shrink-0 ${
+                    isSuperAdmin
+                      ? 'bg-indigo-700 text-indigo-100'
+                      : isAdmin
+                      ? 'bg-[#77323d] text-[#f0dfda]'
+                      : 'bg-[#526d78] text-[#e8f0f2]'
+                  }`}
+                >
+                  {initials || 'US'}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-[#e0e7e5] truncate">
+                  {session.displayName}
+                </div>
+                <div className="text-[9px] text-[#82928e] truncate">
+                  {isSuperAdmin
+                    ? 'Super Administrator · Root'
+                    : isAdmin
+                    ? 'Notaris Utama · Administrator'
+                    : 'Klien Terverifikasi'}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={onLogout}
+              className="p-1.5 rounded-md text-[#81938e] hover:text-rose-300 hover:bg-rose-950/40 transition cursor-pointer"
+              title="Keluar / Kunci Sesi"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+};
