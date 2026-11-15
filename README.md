@@ -1,360 +1,204 @@
 # ArsipNusa: Notarial Cryptographic Vault & Client Trust Portal
 
-Dokumentasi Resmi Proyek Akhir Kriptografi
-Sistem Manajemen Brankas Digital Notaris, Pejabat Pembuat Akta Tanah (PPAT), dan Portal Klien Berbasis Kriptografi Berlapis dan SQLite.
+Dokumentasi Resmi Proyek Akhir Kriptografi  
+Sistem Manajemen Brankas Digital Notaris, Pejabat Pembuat Akta Tanah (PPAT), Portal Klien, dan Konsol Sysadmin berbasis Kriptografi Modern & SQLite (`node:sqlite`).
 
 ---
 
 ## 1. Ringkasan Eksekutif
 
-ArsipNusa adalah aplikasi brankas digital kenotariatan yang dirancang untuk mengatasi kerentanan pemalsuan warkah, sengketa kepemilikan sertifikat tanah, kebocoran surat wasiat rahasia, serta manipulasi akta otentik. Sistem ini mengintegrasikan metode kriptografi klasik dan modern, steganografi citra digital, buku besar rantai kepemilikan (Chain of Title), otentikasi peran terpisah (Notaris dan Klien), serta penyimpanan data persisten menggunakan SQLite terintegrasi.
-
-Antarmuka sistem mengusung estetika resmi kenotariatan dengan kombinasi warna hijau notariat dan putih bersih (Green and White Theme), serta menyediakan latar belakang putih khusus pada portal dan kartu akses pengguna (Klien) untuk memastikan kejelasan visual, kenyamanan membaca warkah hukum, dan keterpisahan hak akses yang tegas.
+ArsipNusa adalah aplikasi brankas digital kenotariatan yang dirancang untuk mencegah pemalsuan warkah, sengketa kepemilikan sertifikat tanah, kebocoran surat wasiat rahasia, serta manipulasi akta otentik. Sistem ini menggabungkan kriptografi klasik dan modern berstandar industri (AEAD), tanda tangan digital asimetris ECDSA P-256 dengan alur *Dual-Signature*, steganografi citra digital LSB, buku besar rantai kepemilikan (*Chain of Title* Blockchain PoW dengan verifikasi efek domino), pemisahan hak akses 3 peran (*Super Admin*, *Notaris*, dan *Klien*), serta penyimpanan persisten SQLite.
 
 ---
 
-## 2. Latar Belakang dan Masalah Keamanan Kenotariatan
+## 2. Arsitektur Kriptografi Sistem
 
-Dalam praktik hukum perdata di Indonesia berdasarkan Undang-Undang Jabatan Notaris (UUJN), kantor notaris mengemban kewajiban hukum untuk menjamin:
-- Kerahasiaan (Confidentiality): Klausul surat wasiat dan perjanjian rahasia tidak boleh bocor sebelum waktu pembacaan yang sah.
-- Integritas (Integrity): Akta dan dokumen tanah tidak boleh diubah satu huruf pun setelah ditandatangani para pihak dan notaris.
-- Nir-penyangkalan (Non-repudiation): Pihak yang telah membubuhkan tanda tangan digital tidak dapat menyangkal keterlibatannya di kemudian hari.
-- Keaslian dan Rantai Hak (Authenticity and Chain of Title): Riwayat pemindahan hak atas tanah dari satu pemilik ke pemilik berikutnya harus dapat diverifikasi secara kronologis tanpa celah tumpang tindih sertifikat ganda.
+### 2.1. Enkripsi Simetris AEAD & Super Enkripsi
+Seluruh payload warkah/akta rahasia dan catatan permohonan dienkripsi secara nyata menggunakan Web Crypto API dan implementasi Node `crypto` yang saling kompatibel:
+- **AES-256-GCM (NIST SP 800-38D):** Derivasi kunci PBKDF2-SHA256 (`10.000` iterasi, *salt* acak 16-byte, IV 12-byte, tag autentikasi 128-bit) dengan format paket `AESGCM1:<salt_b64>:<iv_b64>:<cipher+tag_b64>`.
+- **ChaCha20-Poly1305 (RFC 8439):** Implementasi murni TypeScript (klien) & OpenSSL/Node `crypto` (server) dengan PBKDF2-SHA256 (`10.000` iterasi, *nonce* 12-byte, MAC Poly1305 16-byte) berformat `CHACHA1:<salt_b64>:<nonce_b64>:<cipher_b64>:<tag_b64>`.
+- **Super Enkripsi (Vigenère + AES-256-GCM):**
+  - **Lapisan 1 (Klasik):** Vigenère Cipher ($C_i = (P_i + K_i) \bmod 26$) untuk menyamarkan pola frekuensi bahasa teks asli.
+  - **Lapisan 2 (Modern):** Hasil Vigenère dienkripsi ulang dengan **AES-256-GCM**.
+  - **Dekripsi:** AES-256-GCM Decrypt (verifikasi tag autentikasi) $\rightarrow$ Sandi Vigenère Antara $\rightarrow$ Inversi Vigenère $\rightarrow$ Plaintext asli.
+- **Enkripsi File Biner (`.enc`):** Modul *Berkas Terenkripsi* mengenkripsi berkas unggahan (mis. `.pdf`) pada level `Uint8Array` menjadi paket JSON terstruktur `ArsipNusa-EncryptedFile-v1`, lengkap dengan verifikasi ulang SHA-256 serta fitur pemulihan (*Dekripsi `.enc`*).
 
-ArsipNusa menyelesaikan seluruh tantangan tersebut melalui rekayasa perangkat lunak berbasis matematika kriptografi.
+### 2.2. Tanda Tangan Digital Asimetris (ECDSA P-256) & Alur Dual-Signature
+- Pengesahan akta memakai kurva eliptik **ECDSA P-256 (`SHA-256`)** pada Web Crypto API (`signPayloadECDSA` / `verifyPayloadECDSA`) dan dapat diverifikasi langsung melalui tombol **Verifikasi TTD ECDSA P-256** di detail dokumen.
+- **Alur 2 Arah (Dual-Signature):**
+  1. Notaris menerbitkan draf akta terenkripsi $\rightarrow$ status `Menunggu tanda tangan`.
+  2. **Tahap 1 (Klien):** Klien meninjau & menandatangani akta dengan konfirmasi sandi akun + tanda tangan ECDSA P-256 $\rightarrow$ status berubah ke `Dalam peninjauan`.
+  3. **Tahap 2 (Notaris):** Notaris mengesahkan & menyegel akhir memakai USB Dongle `.key` atau Face Recognition + tanda tangan ECDSA P-256 $\rightarrow$ status resmi `Terverifikasi`.
 
----
+### 2.3. Autentikasi Kredensial (`scrypt`), USB Dongle `.key` & Biometrik Wajah
+- **Penyimpanan Password (`scrypt`):** Di `server.js`, ringkasan SHA-256 dari klien di-hash ulang dengan garam acak (*salted scrypt*, `scrypt:<salt>:<hex>`) sebelum disimpan di SQLite, serta diperiksa menggunakan `crypto.timingSafeEqual`.
+- **Sertifikat Hardware Dongle (`.key` v2.5.0):** Modul `src/utils/dongle.ts` menerbitkan dan memverifikasi berkas kunci flashdisk menggunakan **ECDSA P-256** (`publicKeyJwk` + sidik jari SHA-256, dengan dukungan mundur `2.4.1`). Tersedia juga fitur pencabutan token (*Revoke*) ke tabel `security_tokens` (tersinkron dengan fallback `localStorage`).
+- **Face Recognition Darurat:** Apabila dongle fisik hilang, verifikasi darurat webcam mengekstrak vektor **luminansi 16×16, gradien spasial, dan krominans YCbCr** untuk dibandingkan terhadap foto master notaris di SQLite.
 
-## 3. Arsitektur Kriptografi Sistem
+### 2.4. Buku Besar Rantai Kepemilikan (Chain of Title Blockchain + Domino PoW)
+- Setiap akta membentuk blok dinamis setelah Genesis Block (`#001`) dengan penambangan **Proof-of-Work prefix `'00'`** (`mineBlockWithPoW`).
+- Hash blok dihitung dari `Index|PreviousHash|Timestamp|DataHash|Nonce`.
+- **Verifikasi Efek Domino (`verifyChainIntegrity`):** Jika payload/hash pada Block ke-$k$ diubah (baik dengan atau tanpa re-hash lokal), sistem mendeteksi ketidaksesuaian tautan hilir dan menandai **seluruh blok $k \dots N$** tidak valid secara beruntun.
 
-Sistem ini memadukan lima pilar kriptografi utama:
-
-### 3.1. Super Enkripsi (Super Encryption)
-Super enkripsi menggabungkan dua lapisan cipher berbeda: algoritma kriptografi klasik dan algoritma kriptografi modern.
-
-- Lapisan 1 (Kriptografi Klasik): Vigenere Cipher
-  Menggunakan substitusi polyalphabetic berdasarkan kunci teks alfabetis. Rumus matematis per karakter:
-  - Enkripsi: C_i = (P_i + K_i) mod 26
-  - Dekripsi: P_i = (C_i - K_i + 26) mod 26
-  Fungsi: Mengaburkan frekuensi huruf alami dokumen bahasa Indonesia dan menambah kompleksitas awal bagi pihak yang tidak berwenang.
-
-- Lapisan 2 (Kriptografi Modern): Stream Cipher berbasis Pseudo-Random Keystream & Bitwise Permutation
-  Hasil dari Vigenere Cipher dienkripsi kembali menggunakan keystream pseudo-acak yang dibangkitkan dari kunci rahasia modern dengan komputasi S-box shift register linear congruential generator (LCG):
-  - state_{n+1} = (state_n * 1103515245 + 12345) mod 2^32
-  - Rotasi bit: ((byte << 3) | (byte >>> 5)) & 0xFF
-  - Operasi XOR: CipherByte = RotatedByte ^ KeyStreamByte
-  - Encoding: Representasi Base64 untuk penyimpanan aman dalam basis data SQLite.
-
-- Alur Dekripsi:
-  Ciphertext -> Inversi XOR & Rotasi Bit -> Intermediate Text -> Inversi Vigenere -> Dokumen Asli (Plaintext).
-
-### 3.2. Validasi Integritas Hash SHA-256 (Secure Hash Algorithm 256-bit)
-Setiap dokumen, akta, sertifikat tanah, warkah, dan kata sandi pengguna dihitung nilai ringkasan pesannya (message digest) menggunakan fungsi hash SHA-256 (FIPS PUB 180-4) melalui Web Crypto API standar standar browser (`crypto.subtle.digest`).
-- Sifat Hash: Satu arah (pre-image resistance), tahan tabrakan (collision resistance), dan efek longsoran (avalanche effect). Perubahan 1 bit karakter pada akta akan merombak 256-bit nilai hash secara drastis.
-- Otentikasi Kredensial: Password akun tidak disimpan dalam bentuk teks biasa, melainkan disimpan dalam bentuk digest heksadesimal 64 karakter pada tabel SQLite `users`.
-
-### 3.3. Steganografi Citra Digital (LSB - Least Significant Bit)
-Fitur penyisipan pesan atau warkah rahasia ke dalam bit terendah (LSB) dari data piksel gambar sertifikat atau akta digital (format PNG lossless):
-- Header Panjang Pesan: Menggunakan 32-bit integer (4 byte) di awal stream bit piksel untuk menyimpan ukuran panjang pesan dalam byte.
-- Kanal Warna: Menggunakan kanal Red, Green, dan Blue (RGB) pada HTML5 Canvas ImageData, membiarkan kanal Alpha (transparansi) tetap utuh agar tidak merusak tampilan visual citra.
-- Imperseptibilitas: Perubahan nilai desimal maksimum hanya 1 angka (misalnya warna merah nilai 204 menjadi 205), sehingga mata manusia tidak dapat melihat perbedaan fisik antara gambar asli dan gambar yang disisipi pesan rahasia.
-- Fungsi Verifikasi: Memungkinkan notaris dan klien membongkar kembali pesan rahasia yang tertanam di dalam sertifikat untuk membuktikan keaslian berkas.
-
-### 3.4. Buku Besar Rantai Kepemilikan (Chain of Title Blockchain)
-Untuk memverifikasi keabsahan silsilah kepemilikan tanah dan aset tanpa bergantung pada satu pihak saja, ArsipNusa mengimplementasikan struktur data rantai blok (blockchain-like ledger):
-- Struktur Blok:
-  - Block Index: Nomor urut blok (Genesis Block = 0).
-  - Previous Hash: Hash dari blok sebelum dirinya.
-  - Timestamp: Waktu pencatatan akta secara persis.
-  - Data Hash: SHA-256 dari rincian peralihan hak, nomor SHM, pihak penjual/pemberi, pihak pembeli/penerima, dan nilai transaksi.
-  - Nonce: Angka pembuktian komputasi.
-  - Current Block Hash: SHA-256 dari penggabungan `Index|PreviousHash|Timestamp|DataHash|Nonce`.
-- Verifikasi Integritas Otomatis: Fungsi `verifyChainIntegrity` melakukan iterasi dari Genesis Block hingga blok termutakhir untuk mendeteksi apakah terdapat rantai yang putus atau hash yang dimanipulasi secara ilegal.
-
-### 3.5. Implementasi Perangkat Keamanan Fisik USB Flashdisk (FIPS 140-2 Level 3)
-Sistem mendukung perangkat penyimpanan USB fisik (Flashdisk / USB Drive) nyata sebagai Hardware Security Token Notaris:
-- **Penerbitan Kunci Dongle (`.key`):** Menghasilkan berkas sertifikat kunci kriptografis terenkripsi (`arsipnusa_dongle_*.key`) yang dapat diunduh dan disimpan ke dalam drive Flashdisk fisik (Drive D:, E:, dll).
-- **Deteksi & Pemuatan Fisik:** Saat Notaris masuk sistem atau mengesahkan akta, Notaris mencolokkan flashdisk dan memilih berkas `.key`. Sistem melakukan verifikasi integritas tanda tangan digital SHA-256 dan mencocokkan nomor seri token ke database SQLite.
-- **Prinsip Dua Faktor (2FA):** Kepemilikan fisik flashdisk (*what you have*) dipadukan dengan kata sandi/PIN notaris (*what you know*), sehingga jika flashdisk jatuh atau ditemukan pihak lain, kunci tetap aman dan tidak dapat digunakan.
-
-### 3.6. Protokol Penanganan Darurat Kehilangan Dongle & Face Recognition
-Sebagai antisipasi standar FIPS 140-2 & ISO 27001 apabila Flashdisk Dongle hilang atau tertinggal:
-1. **Autentikasi Darurat Pemindaian Wajah (Biometric Face Recognition Fallback):**
-   - Notaris dapat masuk atau menandatangani akta menggunakan kamera webcam komputer melalui modul *Face Recognition Scanner* (standar ISO/IEC 19794-5).
-   - Pemindai mengekstrak matriks landmark wajah 68-titik, menghitung ringkasan template biometrik SHA-256, dan memvalidasi kesesuaian identitas Notaris Natasha S.H., M.Kn. (tingkat kecocokan 99,4%+).
-2. **Pencabutan & Pemblokiran Kunci Lama (Revocation / Blacklist Token):**
-   - Notaris dapat langsung memicu fungsi *Revoke Dongle* dari pusat kendali keamanan.
-   - Status nomor seri flashdisk yang hilang otomatis diubah menjadi `REVOKED` di tabel SQLite `security_tokens` dan dicatat ke dalam Jejak Audit Darurat.
-   - Siapa pun yang mencoba menggunakan berkas kunci dari flashdisk yang hilang tersebut akan langsung ditolak oleh sistem.
-3. **Penerbitan Kunci Pengganti (Emergency Re-Keying):**
-   - Notaris dapat menerbitkan pasangan kunci baru (New Key Pair) dengan nomor seri unik baru ke Flashdisk pengganti tanpa membatalkan keabsahan akta-akta lama yang telah tersimpan di *Chain of Title*.
+### 2.5. Steganografi Citra Digital (LSB)
+- Menyisipkan dan mengekstrak pesan rahasia pada kanal warna RGB gambar PNG (`Canvas ImageData`) dengan header panjang 32-bit dan kanal Alpha tetap utuh.
 
 ---
 
-## 4. Desain Antarmuka Pengguna (UI/UX)
+## 3. Pemisahan Peran (Strict RBAC)
 
-Sistem dirancang dengan pedoman visual yang mengutamakan kenyamanan, kemewahan kenotariatan formal, serta pemisahan identitas pengguna:
-
-### 4.1. Kombinasi Hijau dan Putih untuk Latar Belakang Login
-- Latar Belakang Halaman: Memadukan gradasi hijau notariat tua (`#07241c`, `#0c382e`, `#145744`) dan putih terang (`#ffffff`, `#f0fdf4`) dengan pencahayaan ambient radial lembut serta pola kisi keamanan halus.
-- Simbolisme: Hijau melambangkan keabsahan, integritas hukum pertanahan, ketenangan, dan kepatuhan finansial; sedangkan putih melambangkan transparansi, kejujuran hukum, dan keterbukaan akses warkah.
-
-### 4.2. Latar Belakang Putih Khusus untuk Pengguna (Klien/User)
-- Kartu Login Klien: Ketika mode 'Klien (User)' atau 'Daftar Akun' dipilih, wadah form berganti menjadi kartu putih murni (`bg-white`) dengan border hijau emerald lembut (`border-emerald-100`) dan bayangan lembut berdimensi tinggi.
-- Kotak Isian (Input Fields): Memiliki latar belakang putih bersih (`bg-white`) dengan bingkai abu-abu tegas (`border-slate-300`), teks hitam pekat yang mudah dibaca, serta efek fokus hijau emerald (`focus:border-emerald-600 focus:ring-emerald-500/20`).
-- Dashboard Portal Klien: Seluruh panel metrik, tabel aset, riwayat permohonan layanan, dan footer portal klien berlatar belakang putih (`bg-white`), memastikan dokumen akta tampil dengan kontras maksimal layaknya membaca kertas akta otentik resmi.
+1. **Super Admin (`superadmin`):** Manajemen akun pengguna (`users`), statistik database SQLite, penerbitan & pencabutan USB Dongle Token, pendaftaran foto biometrik, dan Audit Log Global.
+2. **Notaris / Admin (`admin`):** Konsol utama brankas notaris (*Ikhtisar*, *Permohonan Klien*, *Aset & Sertifikat*, *Wasiat & Akta*, *Klien + Verifikasi KYC*, *Berkas Terenkripsi*, *Chain of Title*, *Super Enkripsi*, dan *Steganografi*).
+3. **Klien (`client`):** Portal terisolasi (*Beranda*, *Aset Saya*, *Dokumen Saya*, *Permintaan* dengan catatan terenkripsi AES-256-GCM, *Riwayat Kepemilikan*, dan *Cek Keaslian Berkas*). Setiap klien hanya melihat dokumen milik dirinya sendiri.
 
 ---
 
-## 5. Pemisahan Peran Pengguna (Role-Based Access Control)
-
-Sistem membedakan hak akses secara ketat antara dua entitas:
-
-### 5.1. Peran Notaris (Admin)
-- Ruang Kerja Utama Kenotariatan (Notarial Vault Console).
-- Akses penuh ke seluruh daftar dokumen akta klien di seluruh wilayah kerja.
-- Fasilitas penambahan dokumen akta baru dengan enkripsi otomatis ke SQLite.
-- Fasilitas Super Enkripsi interaktif (enkripsi dan dekripsi langsung).
-- Fasilitas Steganografi LSB (penyisipan pesan dan ekstraksi dari gambar).
-- Pengawasan audit log aktivitas sistem secara komprehensif.
-- Pemeriksaan keutuhan buku besar Chain of Title.
-- Otorisasi pengesahan permohonan layanan yang diajukan oleh klien.
-
-### 5.2. Peran Klien (User)
-- Portal Kepercayaan Klien (Client Trust Portal).
-- Hak Akses Terisolasi (Data Segregation): Klien hanya dapat melihat akta, surat wasiat, dan sertifikat tanah yang terdaftar atas nama pribadinya.
-- Pengajuan Permintaan Layanan: Klien dapat mengajukan pembuatan akta baru, pendaftaran tanah, atau konsultasi waris kepada notaris secara mandiri.
-- Pemantauan Status: Klien dapat melacak proses pengesahan berkas (Menunggu Peninjauan, Sedang Diproses, Selesai dan Tersegel).
-- Pemeriksaan Keaslian Berkas: Klien dapat mengunggah gambar berkas untuk memvalidasi watermark steganografi dan riwayat kepemilikan.
-- Pendaftaran Mandiri: Pengguna baru dapat mendaftarkan akun klien melalui formulir registrasi yang langsung divalidasi dan disimpan di SQLite.
-
----
-
-## 6. Struktur Direktori Proyek
+## 4. Struktur Direktori Utama
 
 ```text
-notarial-vault/
-├── dist/                          # Hasil kompilasi bundler Vite untuk produksi
-├── node_modules/                  # Dependensi paket Node.js
-├── public/                        # Aset publik statis (favicon, ikon SVG)
-├── src/
-│   ├── assets/                    # Gambar statis pendukung antarmuka
-│   ├── components/                # Komponen antarmuka React
-│   │   ├── client/                # Komponen khusus klien (modal permohonan)
-│   │   ├── views/                 # Halaman kerja utama
-│   │   │   ├── client/            # Tampilan Ikhtisar & Permintaan Klien
-│   │   │   ├── ChainOfTitleView.tsx
-│   │   │   ├── ClientsView.tsx
-│   │   │   ├── DocumentsView.tsx
-│   │   │   ├── EncryptedFilesView.tsx
-│   │   │   ├── OverviewView.tsx
-│   │   │   ├── SteganographyView.tsx
-│   │   │   └── SuperEncryptionView.tsx
-│   │   ├── AddDocumentModal.tsx   # Modal pembuatan dokumen baru oleh Notaris
-│   │   ├── Header.tsx             # Header navigasi atas dengan status SQLite
-│   │   ├── LoginPage.tsx          # Halaman masuk & registrasi hijau-putih
-│   │   └── Sidebar.tsx            # Navigasi samping dinamis sesuai peran
-│   ├── services/
-│   │   └── api.ts                 # Penghubung komunikasi REST API ke backend Express
-│   ├── types/
-│   │   └── index.ts               # Definisi tipe data antarmuka TypeScript
-│   ├── utils/
-│   │   └── crypto.ts              # Utilitas matematika algoritma kriptografi
-│   ├── App.css                    # Gaya kustom tambahan
-│   ├── App.tsx                    # Komponen induk navigasi dan pengontrol sesi
-│   ├── index.css                  # Konfigurasi Tailwind CSS dan font DM Sans
-│   └── main.tsx                   # Titik masuk utama aplikasi React DOM
-├── package.json                   # Definisi pustaka dependensi dan skrip proyek
-├── server.js                      # Server backend Express.js dan SQLite terintegrasi
-├── tsconfig.json                  # Konfigurasi kompilator TypeScript
-├── vault.sqlite                   # Basis data SQLite persisten lokal
-└── vite.config.ts                 # Konfigurasi modul Vite bundler
+├── server.js                              # Backend Express 5 + SQLite (node:sqlite) & Node Crypto
+├── vault.sqlite                           # Database SQLite persisten lokal (auto-create jika dihapus)
+├── package.json                           # Dependensi & npm scripts
+└── src/
+    ├── App.tsx                            # Pengontrol sesi, RBAC, dan routing view
+    ├── types/index.ts                     # Definisi tipe TypeScript
+    ├── services/api.ts                    # REST client + fallback localStorage
+    ├── utils/
+    │   ├── crypto.ts                      # AES-256-GCM, ChaCha20-Poly1305, Vigenère, ECDSA P-256, PoW & Domino
+    │   └── dongle.ts                      # Generator & verifier file USB Dongle .key (ECDSA P-256 v2.5.0)
+    └── components/
+        ├── LoginPage.tsx                  # Login, Register, Demo Cepat, USB Dongle & Face ID
+        ├── Header.tsx / Sidebar.tsx       # Navigasi peran & metrik dinamis
+        ├── AddDocumentModal.tsx           # Pembuatan akta baru + enkripsi real-time
+        ├── DocumentSignModal.tsx          # Modal tanda tangan ECDSA Dual-Signature
+        ├── DongleManagerModal.tsx         # Penerbitan & pencabutan USB Dongle Notaris
+        ├── FaceRecognitionModal.tsx       # Scanner biometrik wajah darurat
+        ├── client/ClientRequestModal.tsx  # Pengajuan permintaan + enkripsi catatan AES-256-GCM
+        └── views/
+            ├── OverviewView.tsx           # Dashboard ringkasan Notaris
+            ├── NotaryRequestsView.tsx     # Meja kerja pengesahan permohonan klien
+            ├── DocumentsView.tsx          # Tabel & modal dekripsi nyata + verifikasi ECDSA
+            ├── ClientsView.tsx            # Daftar klien SQLite + tombol Verifikasi KYC
+            ├── EncryptedFilesView.tsx     # Enkripsi/dekripsi file binary (.enc) nyata
+            ├── ChainOfTitleView.tsx       # Simulasi Blockchain PoW & pengujian serangan domino
+            ├── SuperEncryptionView.tsx    # Laboratorium Vigenère + AES-256-GCM
+            ├── SteganographyView.tsx      # Encode/Decode LSB image watermark
+            ├── SuperAdminView.tsx         # Manajemen user, dongle, biometrik & status SQLite
+            └── client/                    # ClientOverviewView.tsx & ClientRequestsView.tsx
 ```
 
 ---
 
-## 7. Persyaratan Sistem dan Dependensi
+## 5. Panduan Instalasi & Menjalankan Sistem (Yang Harus Dilakukan)
 
-### 7.1. Prasyarat Perangkat Lunak
-- Node.js versi 22.0.0 atau lebih baru (wajib, karena memanfaatkan modul bawaan `node:sqlite DatabaseSync` tanpa perlu kompilasi node-gyp eksternal).
-- npm (Node Package Manager) versi 10.0.0 atau lebih baru.
-- Peramban web modern yang mendukung Web Crypto API (Google Chrome, Microsoft Edge, Mozilla Firefox, atau Safari).
+### Prasyarat
+- **Node.js v22.0.0+** (wajib karena `server.js` memakai modul bawaan `node:sqlite`).
+- Browser modern (Chrome / Edge / Firefox) yang mendukung Web Crypto API.
 
-### 7.2. Pustaka Utama (Dependencies)
-- React 19 (`react`, `react-dom`): Framework UI reaktif modern.
-- Express 5 (`express`): Framework backend REST API.
-- CORS (`cors`): Middleware keamanan lintas origin.
-- Lucide React (`lucide-react`): Pustaka ikon vektor clean formal.
-- Vite 8 (`vite`): Build tool dan development server kilat.
-- Tailwind CSS 4 (`tailwindcss`, `@tailwindcss/vite`): Framework utility styling.
-- TypeScript 7 (`typescript`): Pengecekan tipe data statis berkas program.
+### Langkah Menjalankan Aplikasi (2 Terminal)
+1. **Install dependensi (cukup sekali di awal):**
+   ```powershell
+   npm install
+   ```
+2. **Terminal 1 — Jalankan Backend SQLite Express (Port `5000`):**
+   ```powershell
+   npm run server
+   ```
+   Pastikan muncul pesan:  
+   `[ArsipNusa Vault] SQLite Express Server berjalan di http://localhost:5000`
+3. **Terminal 2 — Jalankan Frontend Vite (Port `5173`):**
+   ```powershell
+   npm run dev
+   ```
+4. Buka browser di `http://localhost:5173`.
 
----
+> **Penting:** Selalu nyalakan `npm run server` sebelum mendemokan aplikasi agar verifikasi KYC, registrasi akun, tanda tangan ECDSA, dan penyimpanan akta tersinkron ke `vault.sqlite` (bukan mode fallback lokal).
 
-## 8. Panduan Instalasi dan Menjalankan Sistem
-
-### Langkah 1: Membuka Terminal pada Direktori Proyek
-Buka PowerShell atau Command Prompt pada folder proyek:
+### Verifikasi Build & Kode
 ```powershell
-cd "D:\kriptografi\proyek akhir\notarial-vault"
-```
-
-### Langkah 2: Memasang Seluruh Dependensi
-Jalankan perintah berikut:
-```powershell
-npm install
-```
-
-### Langkah 3: Menjalankan Server Backend Express & SQLite
-Jalankan server database backend pada terminal pertama:
-```powershell
-npm run server
-```
-Server akan aktif pada:
-`http://localhost:5000`
-Basis data `vault.sqlite` akan otomatis diinisialisasi beserta tabel-tabel utamanya dan data awal (seeding).
-
-### Langkah 4: Menjalankan Server Frontend Vite
-Buka jendela terminal kedua pada folder proyek yang sama, lalu jalankan:
-```powershell
-npm run dev
-```
-Aplikasi antarmuka akan aktif pada:
-`http://localhost:5173`
-
-Buka peramban dan arahkan ke alamat `http://localhost:5173`.
-
-### Langkah 5: Kompilasi untuk Kebutuhan Produksi (Opsional)
-Untuk menguji hasil kompilasi bersih TypeScript dan bundler Vite:
-```powershell
+node --check server.js
+npx tsc -b --noEmit
+npx oxlint src/
 npm run build
 ```
 
 ---
 
-## 9. Kredensial Pengujian Akun Bawaan (Demo Credentials)
+## 6. Cara Reset Database (`vault.sqlite`) ke Kondisi Bersih
 
-Sistem telah dilengkapi dengan data akun bawaan untuk mempermudah evaluasi pengujian:
+Jika database terisi data uji coba yang ingin dibersihkan sebelum demo/presentasi:
 
-| Peran Akses | Username | Kata Sandi | Nama Pengguna | Catatan Akses |
+### Opsi A — Reset Total (Mengembalikan Semua Tabel ke Seed Bawaan)
+1. Hentikan `npm run server` (`Ctrl + C`) agar file tidak terkunci Windows.
+2. Hapus `vault.sqlite`:
+   ```powershell
+   Remove-Item .\vault.sqlite* -Force
+   ```
+3. Jalankan ulang backend untuk membuat `vault.sqlite` baru beserta 5 dokumen terenkripsi asli (`AESGCM1` / `CHACHA1`) dan 5 akun demo:
+   ```powershell
+   npm run server
+   ```
+4. Bersihkan cache browser melalui DevTools (`F12`) $\rightarrow$ **Console**:
+   ```js
+   localStorage.clear(); sessionStorage.clear(); location.reload();
+   ```
+
+### Opsi B — Menghapus Dokumen Tertentu Tanpa Menghapus User Terdaftar
+Hentikan `npm run server`, lalu jalankan di PowerShell (ganti ID sesuai kebutuhan):
+```powershell
+node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; new DatabaseSync("./vault.sqlite").prepare(`DELETE FROM documents WHERE id IN (?, ?)`).run("ID-1", "ID-2");'
+```
+
+---
+
+## 7. Akun Demo & Kunci Default Vault
+
+### Kredensial Bawaan
+| Peran | Username | Kata Sandi | Nama Tampilan | Keterangan Demo |
 |---|---|---|---|---|
-| Notaris (Admin) | admin | admin123 | Natasha S.H., M.Kn. | Akses penuh seluruh brankas & fitur kriptografi |
-| Klien 1 (User) | rina | user123 | Rina Hartono | Akses berkas aset SHM Pondok Indah & Wasiat |
-| Klien 2 (User) | budi | user123 | Budi Santoso | Akses sertifikat Kavling Menteng |
-| Registrasi Baru | Bebas | Bebas (min. 6 char) | Sesuai pendaftaran | Tersimpan persisten di tabel SQLite `users` |
+| **Super Admin** | `superadmin` | `superadmin123` | Ahmad Fauzi (Sysadmin) | Manajemen user, status DB & token dongle |
+| **Notaris (Admin)** | `admin` | `admin123` | Natasha S.H., M.Kn. | Akses penuh brankas, pengesahan akta & KYC |
+| **Klien 1** | `rina` | `user123` | Rina Hartono | Memiliki `WST-2025-0087` (menunggu TTD) & `SHM-02041/JKS` |
+| **Klien 2** | `budi` | `user123` | Budi Santoso | Memiliki `SHM-01428/JKT` (Terverifikasi) |
+| **Klien 3** | `hendra` | `user123` | Dr. Hendra Wijaya, Sp.A. | Status awal `Menunggu KYC` (`kyc_verified = 0`) |
 
-Pada halaman login tersedia tombol sekali-klik (Pilihan Demo Kredensial Cepat) untuk mengisi kredensial pengujian secara instan.
-
----
-
-## 10. Dokumentasi Endpoint REST API Server
-
-Backend Express.js (`server.js`) menyediakan antarmuka REST API berikut:
-
-### 10.1. Pemeriksaan Status Server
-- Metode: `GET`
-- Rute: `/api/health`
-- Fungsi: Mengecek ketersediaan server dan koneksi database SQLite.
-- Respon Sukses (200 OK):
-  ```json
-  {
-    "status": "ok",
-    "database": "sqlite",
-    "timestamp": "2026-11-06T10:50:00.000Z"
-  }
-  ```
-
-### 10.2. Masuk Pengguna (Login)
-- Metode: `POST`
-- Rute: `/api/users/login`
-- Parameter Body:
-  ```json
-  {
-    "username": "rina",
-    "password_hash": "e606e38b0d8c19b24cf0ee3808183162ea7cd63ff7912dbb22b5e803286b4446",
-    "role": "client"
-  }
-  ```
-- Fungsi: Memverifikasi kesesuaian username, hash kata sandi SHA-256, dan validasi peran portal.
-
-### 10.3. Pendaftaran Klien Baru (Register)
-- Metode: `POST`
-- Rute: `/api/users/register`
-- Parameter Body:
-  ```json
-  {
-    "username": "ahmad",
-    "password_hash": "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
-    "role": "client",
-    "name": "Ahmad Dahlan S.E.",
-    "nik": "3171051204850003",
-    "email": "ahmad@email.com",
-    "phone": "+62 812-3456-7890"
-  }
-  ```
-- Fungsi: Menyimpan identitas klien baru ke tabel `users` di database SQLite.
-
-### 10.4. Mengambil Daftar Dokumen Akta
-- Metode: `GET`
-- Rute: `/api/documents`
-- Parameter Query Opsional: `?client=rina`
-- Fungsi: Mengambil seluruh berkas akta terenkripsi, atau memfilter khusus kepemilikan klien tertentu.
-
-### 10.5. Menambahkan Dokumen Akta Baru
-- Metode: `POST`
-- Rute: `/api/documents`
-- Parameter Body:
-  ```json
-  {
-    "title": "Akta Jual Beli Ruko Kemang",
-    "client": "Rina Hartono",
-    "type": "Akta Notaris",
-    "value": "Rp 5,5 M",
-    "status": "Terverifikasi",
-    "encrypted_content": "U2FsdGVkX1+9K8sP2qR4...",
-    "algorithm": "Super-Encrypted (Vigenere + AES)",
-    "sha256_hash": "b47c12f08a99476bdf23485743bcae7102837461829405627192837465012345"
-  }
-  ```
-- Fungsi: Menyimpan dokumen ke SQLite dan secara otomatis mencatat entri log audit baru.
-
-### 10.6. Mengambil Riwayat Audit Kriptografis
-- Metode: `GET`
-- Rute: `/api/audit-logs`
-- Fungsi: Mengembalikan seluruh log audit jejak digital berkas berurutan dari waktu terbaru.
-
-### 10.7. Mengajukan Permintaan Layanan Klien
-- Metode: `POST`
-- Rute: `/api/requests`
-- Parameter Body:
-  ```json
-  {
-    "client_name": "Rina Hartono",
-    "title": "Permohonan Penerbitan Salinan Akta Waris",
-    "category": "Surat Wasiat",
-    "notes": "Diperlukan untuk keperluan kelengkapan administrasi perbankan."
-  }
-  ```
-- Fungsi: Merekam pengajuan layanan klien dengan status awal 'Menunggu Peninjauan'.
-
-### 10.8. Mengambil Daftar Permintaan Layanan Klien
-- Metode: `GET`
-- Rute: `/api/requests`
-- Parameter Query Opsional: `?client=Rina`
-- Fungsi: Menampilkan permohonan layanan yang diajukan ke kantor notaris.
+### Kunci Enkripsi Default Vault
+- **Kunci Modern (AES-256-GCM / ChaCha20-Poly1305):** `AES-NOTARIAL-SECRET-2025`
+- **Kunci Klasik (Vigenère Layer 1 pada Super Enkripsi):** `NOTARISNUSA`
 
 ---
 
-## 11. Kepatuhan Regulasi dan Aspek Hukum
+## 8. Rekomendasi Alur Demo Presentasi (Step-by-Step)
 
-Pengembangan ArsipNusa mengacu pada standar hukum dan keamanan informasi kenotariatan:
-- Undang-Undang Republik Indonesia Nomor 2 Tahun 2014 tentang Perubahan atas UU Nomor 30 Tahun 2004 tentang Jabatan Notaris (UUJN).
-- Undang-Undang Informasi dan Transaksi Elektronik (UU ITE Nomor 1 Tahun 2024) terkait kekuatan pembuktian dokumen elektronik dan tanda tangan digital.
-- Standar Keamanan Informasi ISO/IEC 27001 (Kontrol Kriptografi Klausul A.10).
-- Standar Modul Keamanan FIPS 140-2 (Security Requirements for Cryptographic Modules).
+1. **Verifikasi KYC Klien Baru (Notaris):** Login sebagai `admin` $\rightarrow$ buka menu **Klien** $\rightarrow$ terlihat `Dr. Hendra Wijaya, Sp.A.` berstatus `Menunggu KYC` $\rightarrow$ klik **Verifikasi KYC Sekarang**.
+2. **Dekripsi Nyata & Uji Anti-Tamper (Notaris):** Buka **Aset & Sertifikat** atau **Wasiat & Akta** $\rightarrow$ klik **Buka Detail** pada salah satu dokumen bawaan $\rightarrow$ klik **Dekripsi Ciphertext Sekarang** dengan kunci `AES-NOTARIAL-SECRET-2025` (coba ubah 1 huruf kunci untuk membuktikan tag autentikasi AEAD langsung menolak).
+3. **Super Enkripsi (Vigenère + AES-256-GCM):** Buka menu **Super Enkripsi** $\rightarrow$ ubah plaintext/kunci $\rightarrow$ isi metadata vault $\rightarrow$ klik **Simpan Super Ciphertext ke SQLite Vault** $\rightarrow$ uji dekripsi baik di tab Dekripsi maupun dari tabel **Wasiat & Akta**.
+4. **Dual-Signature ECDSA P-256 (Klien $\leftrightarrow$ Notaris):**
+   - Login sebagai `rina` $\rightarrow$ buka **Dokumen Saya** $\rightarrow$ klik **Tandatangani** pada `WST-2025-0087` (`Menunggu tanda tangan`) $\rightarrow$ status naik ke `Dalam peninjauan`.
+   - Login kembali sebagai `admin` $\rightarrow$ klik **Sahkan & Segel** pada `WST-2025-0087` $\rightarrow$ status menjadi `Terverifikasi` $\rightarrow$ buka detailnya dan klik **Verifikasi TTD ECDSA P-256**.
+5. **Enkripsi & Pemulihan File `.enc`:** Buka **Berkas Terenkripsi** $\rightarrow$ unggah file atau pakai contoh $\rightarrow$ unduh `.enc` $\rightarrow$ pindah ke tab **Dekripsi .enc** untuk memulihkan file asli dan mengecek SHA-256.
+6. **Simulasi Serangan Domino Blockchain:** Buka **Chain of Title** / **Riwayat Kepemilikan** $\rightarrow$ pilih & edit payload pada **Block #5** $\rightarrow$ sistem otomatis menandai **Block #5 sampai blok terakhir** merah (*efek domino rantai hash SHA-256*), lalu klik reset/pulihkan rantai.
+7. **Steganografi LSB:** Buka **Steganografi** $\rightarrow$ sisipkan pesan ke gambar sertifikat $\rightarrow$ unduh PNG $\rightarrow$ uji ekstraksi pesan kembali.
 
 ---
 
-## 12. Hak Cipta dan Pengesahan Proyek
+## 9. Ringkasan Endpoint REST API (`server.js`)
 
-Proyek ini disusun sebagai pemenuhan Tugas Proyek Akhir Mata Kuliah Kriptografi dan Keamanan Data. Seluruh kode sumber, basis data, dan dokumentasi dilindungi hak moral akademis pengembang.
+| Metode & Endpoint | Fungsi |
+|---|---|
+| `GET /api/health` | Status server & koneksi SQLite |
+| `POST /api/users/login` / `POST /api/users/register` | Login (`scrypt` verified + auto-upgrade) & pendaftaran klien |
+| `GET / POST /api/users`, `PUT / DELETE /api/users/:id` | Manajemen pengguna oleh Admin/SuperAdmin |
+| `PUT /api/users/:id/kyc` | Verifikasi KYC klien (`kyc_verified = 1`) |
+| `GET /api/system/stats` | Statistik ringkasan database untuk SuperAdmin |
+| `GET / POST /api/documents` | Ambil daftar dokumen terenkripsi / simpan dokumen baru |
+| `POST /api/documents/:id/sign` | Pembubuhan tanda tangan ECDSA klien/notaris (`Dual-Signature`) |
+| `GET / POST /api/requests`, `PUT /api/requests/:id` | Pengajuan & pembaruan status permohonan layanan klien |
+| `POST /api/requests/:id/sign` | Penerbitan draf / pengesahan akta dari permohonan klien |
+| `GET / POST /api/audit-logs` | Ambil & catat riwayat audit kriptografis |
+| `GET / POST /api/tokens`, `POST /api/tokens/revoke` | Kelola & cabut sertifikat USB Dongle `.key` |
+
+---
+
+## 10. Kepatuhan Regulasi
+Dirancang mengacu pada prinsip UU No. 2 Tahun 2014 tentang Jabatan Notaris (UUJN), UU ITE, kontrol kriptografi ISO/IEC 27001, serta konsep token perangkat keras FIPS 140-2.
